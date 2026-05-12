@@ -3,12 +3,8 @@
 This bot allows you to communicate with your character.ai bots inside a discord chat, making use of [node_characterai](https://github.com/realcoloride/node_characterai).
 
 > [!Note]
-> This branch is in development and is very likely to have issues in the code at this point in development.
-> 
-> ### Future plans
-> - [ ] Character switching via slash command
-> - [ ] Image generation
-> - [ ] Calling
+> People have reported issues connecting their characters since recent Character.AI updates. There haven't been any direct fixes discovered yet.
+
 
 ## Code setup
 ### Node modules
