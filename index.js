@@ -5,9 +5,7 @@ const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord.js');
 
 // ================================================================
-// CONFIGURAÇÃO DA LISTA DE IDs PARA DMs ALEATÓRIAS
-// Cole aqui dentro das aspas os IDs das pessoas que receberão mensagens do nada.
-// Exemplo: ["123456789012345678", "876543210987654321"]
+// CONFIGURAÇÃO DA LISTA DE IDs PARA DMs ALEATÓRIAS (ATUALIZADO)
 // ================================================================
 const IDS_ALVO_DM = ["1310397024541212672", "760510107988918333"]; 
 
@@ -25,6 +23,9 @@ if (fs.existsSync("./config.json")) {
 
 // Inicializa a IA da Groq
 const groq = new Groq({ apiKey: config.groqKey });
+
+// Base de Memória do Bot (Histórico por utilizador)
+const memoriaConversas = new Map();
 
 const client = new Client({ 
     intents: [
@@ -48,25 +49,41 @@ for (const file of commandFiles) {
     console.log(`[Command] - ${command.data.name}.js carregado com sucesso.`);
 }
 
-// Função de comunicação com a Groq
-async function perguntarAoGroq(nomeUsuario, texto) {
+// Função de comunicação com a Groq adaptada para usar MEMÓRIA
+async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
     try {
+        if (!memoriaConversas.has(idUsuario)) {
+            memoriaConversas.set(idUsuario, []);
+        }
+
+        const historicoUsuario = memoriaConversas.get(idUsuario);
+
+        const mensagensParaEnviar = [
+            { role: "system", content: config.personalidade }
+        ];
+
+        historicoUsuario.forEach(msg => mensagensParaEnviar.push(msg));
+        mensagensParaEnviar.push({ role: "user", content: `Usuário [${nomeUsuario}] diz: ${textoAtual}` });
+
         const chatCompletion = await groq.chat.completions.create({
-            messages: [
-                {
-                    role: "system",
-                    content: config.personalidade
-                },
-                {
-                    role: "user",
-                    content: `Usuário [${nomeUsuario}] diz: ${texto}`
-                }
-            ],
+            messages: mensagensParaEnviar,
             model: "llama-3.3-70b-versatile",
             temperature: 0.7,
         });
 
-        return chatCompletion.choices[0]?.message?.content || "Fiquei sem palavras agora...";
+        const respostaIA = chatCompletion.choices[0]?.message?.content || "Fiquei sem palavras agora...";
+
+        // GESTÃO DA MEMÓRIA: Guarda a troca de mensagens atual no histórico
+        historicoUsuario.push({ role: "user", content: `Usuário [${nomeUsuario}] diz: ${textoAtual}` });
+        historicoUsuario.push({ role: "assistant", content: respostaIA });
+
+        // Limita a memória para lembrar apenas das últimas 10 mensagens
+        if (historicoUsuario.length > 10) {
+            historicoUsuario.shift();
+            historicoUsuario.shift();
+        }
+
+        return respostaIA;
     } catch (err) {
         console.error("Erro na API da Groq:", err);
         return "Tive um soluço interno nos meus servidores, pode repetir?";
@@ -75,8 +92,7 @@ async function perguntarAoGroq(nomeUsuario, texto) {
 
 // Evento quando o bot liga
 client.once("ready", async () => {
-    console.log(`${client.user.username} está online e pronto na nuvem!`);
-    console.log("A atualizar os comandos (/)...");
+    console.log(`${client.user.username} está online, com memória e pronto na nuvem!`);
     
     // Define Status e Atividade de Humano
     client.user.setPresence({
@@ -88,7 +104,7 @@ client.once("ready", async () => {
     // ROTINA AUTO-EXECUTÁVEL DE DM ALEATÓRIA (VIDA PRÓPRIA)
     // ================================================================
     async function rotinaMensagemAleatoria() {
-        // Define o tempo de espera aleatório (Ex: Entre 1 hora e 6 horas)
+        // Define o tempo de espera aleatório (Entre 1 hora e 6 horas)
         const tempoMinimo = 3600000; 
         const tempoMaximo = 21600000; 
         const tempoEspera = Math.floor(Math.random() * (tempoMaximo - tempoMinimo + 1)) + tempoMinimo;
@@ -96,10 +112,9 @@ client.once("ready", async () => {
         console.log(`[Rotina Privada] Próxima mensagem aleatória programada para daqui a ${(tempoEspera / 1000 / 60).toFixed(1)} minutos.`);
 
         setTimeout(async () => {
-            // Só executa se houver algum ID válido configurado na lista lá no topo
-            if (IDS_ALVO_DM.length > 0 && IDS_ALVO_DM[0] !== "COLE_AQUI_O_ID_1") {
+            if (IDS_ALVO_DM.length > 0) {
                 try {
-                    // Sorteia uma pessoa da lista
+                    // Sorteia uma pessoa da lista de IDs configurada
                     const idSorteado = IDS_ALVO_DM[Math.floor(Math.random() * IDS_ALVO_DM.length)];
                     const usuarioAlvo = await client.users.fetch(idSorteado);
                     
@@ -111,8 +126,8 @@ client.once("ready", async () => {
                         const tempoDigitando = Math.floor(Math.random() * 3000) + 2000;
                         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
 
-                        // IA gera o assunto surpresa
-                        const mensagemAleatoria = await perguntarAoGroq(usuarioAlvo.username, "Puxe assunto comigo no privado do nada. Escolha um motivo aleatório qualquer de amigo (mandar meme fictício, perguntar o que tô fazendo, falar que tô entediado). Seja curto, muito informal e natural de internet.");
+                        // IA gera o assunto surpresa integrado com a memória
+                        const mensagemAleatoria = await perguntarAoGroqComMemoria(idSorteado, usuarioAlvo.username, "Puxe assunto comigo no privado do nada. Escolha um motivo aleatório qualquer de amigo. Seja curto, muito informal e natural de internet.");
                         
                         await dm.send(mensagemAleatoria);
                         console.log(`[Rotina Privada] Mensagem surpresa enviada para ${usuarioAlvo.username}!`);
@@ -120,8 +135,6 @@ client.once("ready", async () => {
                 } catch (err) {
                     console.error("[Rotina Privada] Erro ao enviar DM aleatória:", err);
                 }
-            } else {
-                console.log("[Rotina Privada] Nenhhum ID configurado na lista ainda.");
             }
 
             // Reinicia o ciclo criando o próximo horário aleatório do dia
@@ -162,8 +175,8 @@ client.on("messageCreate", async message => {
 
     message.channel.sendTyping();
     
-    // Envia o papo para o Llama na Groq responder
-    const respostaIA = await perguntarAoGroq(message.author.username, msgText);
+    // Responde lembrando do histórico do autor da mensagem!
+    const respostaIA = await perguntarAoGroqComMemoria(message.author.id, message.author.username, msgText);
     return message.reply(respostaIA);
 });
 
