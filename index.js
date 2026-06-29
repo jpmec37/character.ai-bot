@@ -1,114 +1,103 @@
-const { Client, GatewayIntentBits, Interaction, Collection, ActivityType } = require("discord.js")
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessages] });
-const config = require("./config.json") // Specifies the config file
+const { Client, GatewayIntentBits, Collection } = require("discord.js");
+const Groq = require("groq-sdk");
+const config = require("./config.json");
 const fs = require("fs");
-
-const { CharacterAI } = require('node_characterai');
-const characterAI = new CharacterAI();
-
 const { REST } = require('@discordjs/rest');
-const { Routes } = require('discord.js')
+const { Routes } = require('discord.js');
 
-// Global Vars
-client.activeChat = false;
-client.activeCharacter = config.defaultCharacter; // default character chat ID
-// --
+// Inicializa a IA da Groq
+const groq = new Groq({ apiKey: config.groqKey });
 
-// Stuff for slash commands.
+const client = new Client({ 
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.MessageContent, 
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.DirectMessages
+    ],
+    partials: [1, 3]
+});
+
 client.commands = new Collection();
 const commands = [];
 const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith(".js"));
 
-// Creates an array with all Slashcommands to use in the register function
 for (const file of commandFiles) {
     const command = require(`./commands/${file}`);
-
     client.commands.set(command.data.name, command);
     commands.push(command.data.toJSON());
-
-    console.log(`[Command] - ${command.data.name}.js has loaded.`);
+    console.log(`[Command] - ${command.data.name}.js carregado com sucesso.`);
 }
 
-// When the bot is "ready":
+// Função que conversa com a Groq (Usa o modelo Llama 3 que aceita personalidades perfeitamente)
+async function perguntarAoGroq(nomeUsuario, texto) {
+    try {
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [
+                {
+                    role: "system",
+                    content: config.personalidade // Força a personalidade aqui
+                },
+                {
+                    role: "user",
+                    content: `Usuário [${nomeUsuario}] diz: ${texto}`
+                }
+            ],
+            model: "llama-3.3-70b-versatile", // Modelo ultra-rápido da Meta
+            temperature: 0.7,
+        });
+
+        return chatCompletion.choices[0]?.message?.content || "Fiquei sem palavras agora...";
+    } catch (err) {
+        console.error("Erro na API da Groq:", err);
+        return "Tive um soluço interno nos meus servidores, pode repetir?";
+    }
+}
+
 client.once("ready", async () => {
-    console.log(`${client.user.username} is online.`); // Log it in the console.
-
-    // Set activity status
-    client.user.setPresence({
-        activities: [{
-            name: `Chatting with members!`, // The text to display
-            type: ActivityType.Custom // Playing, listening, etc.
-        }],
-        status: 'online' // status (online, idle, etc.)
-    });
-
-    // Registering the slash commands to Discord.
+    console.log(`${client.user.username} está online e usando a IA da Groq!`);
+    console.log("A atualizar os comandos (/)...");
+    
     const rest = new REST({ version: '10' }).setToken(config.token);
-    (async () => {
-        try {
-            console.log(`Started refreshing application (/) commands.`)
-
-            const data = await rest.put(
-                Routes.applicationCommands(client.user.id),
-                { body: commands },
-            )
-
-            console.log(`Successfully reloaded application (/) commands.`)
-        } catch (error) {
-            console.error(error)
-        }
-    })();
-
-    characterAI.authenticate(config.authToken) // Initial authentication on startup
-    console.log("Connected to C.ai");
+    try {
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+        console.log("Comandos (/) recarregados com sucesso!");
+    } catch (error) {
+        console.error("Erro ao carregar comandos: ", error);
+    }
 });
 
 client.on("messageCreate", async message => {
-
-    // If the code retrieves a message from a bot user, it stops te code. (Remove if you want the bot to interact with other bots)
     if (message.author.bot) return;
 
-    // If the above line is removed, make sure you uncomment the line below! This will make sure the bot doesn't reply on itself.
-    // if (message.author.id == client.user.id) return;
-    
-    let msgText = message.content
-    if (!client.activeChat) {
-        if (!message.mentions.users.first()) return
-        if (message.mentions.users.first().id !== client.user.id) return
+    let msgText = message.content;
+    const botMention = `<@${client.user.id}>`;
 
-        client.activeChat = `${message.channel.id}_${message.author.id}`
-        msgText = message.content.split(" ").slice(1).join(" ");
+    if (message.guild && !message.content.startsWith(botMention)) return;
+
+    if (message.content.startsWith(botMention)) {
+        msgText = msgText.replace(botMention, "").trim();
     }
 
-    if (!client.activeChat.includes(`${message.channel.id}`)) return
+    if (msgText.length === 0) return message.reply("Olá! Como posso ajudar você hoje?");
 
-    // Displays the "YourBotsName is typing.." text in the discord channel.
     message.channel.sendTyping();
-
-    // If no token its not auth'd
-    if (!characterAI?.token) await characterAI.authenticate(config.authToken); // Authenticate again if the auth has timed out
-    const character = await characterAI.fetchCharacter(client.activeCharacter); // Get character by charID
-
-    const dm = await character.DM(); // Get the main conversation of the character
-
-    // Adds [@Username]: infront of the message and sends it to the AI. (replace this with msgText if you don't want this)
-    const aiReponse = await dm.sendMessage(`[@${message.author.username}]:` + msgText); 
-
-    return message.reply(aiReponse.content) // Send back the response in the discord channel
+    
+    // Envia a pergunta para a Groq
+    const respostaIA = await perguntarAoGroq(message.author.username, msgText);
+    return message.reply(respostaIA);
 });
 
-// Interaction command handling
 client.on("interactionCreate", async interaction => {
     if (interaction.isCommand()) {
-        const slashCommand = client.commands.get(interaction.commandName); // Getting the right command file to execute 
-        if (!slashCommand) return; // If interaction isn't a slashCommand return
-
+        const slashCommand = client.commands.get(interaction.commandName);
+        if (!slashCommand) return;
         try {
-            await slashCommand.execute(client, interaction, characterAI); // Try to execute the command
-        } catch (err) { // Catch if something goes wrong, and if so, return an error to the user.
-            await interaction.reply({ content: `An error has occured. ${err}`, ephemeral: true });
+            await slashCommand.execute(client, interaction, null);
+        } catch (err) {
+            console.error(err);
         }
     }
-})
+});
 
-client.login(config.token) // connects the bot.
+client.login(config.token);

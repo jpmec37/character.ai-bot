@@ -1,25 +1,27 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const config = require('../config.json')
+const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
-
-    data: new SlashCommandBuilder() // The slashCommandBuilder feature from Discord.JS, the lines below are to set data for discord to handle (Name, Desc, options, etc.)
+    data: new SlashCommandBuilder()
         .setName('clearchat')
-        .setDescription('Saves and starts a new chat with your character.')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels), // User needs the manage channels permission to be able to use this command
+        .setDescription('Apaga as mensagens do chat atual.')
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages), // Apenas quem tem permissão de gerenciar mensagens pode usar
+    async execute(client, interaction) {
+        // Garante que o comando foi usado em um canal de texto de um servidor
+        if (!interaction.channel) return;
 
-    async execute(client, interaction, characterAI) {
- 
+        await interaction.deferReply({ ephemeral: true });
+
         try {
-            if (!characterAI?.token) await characterAI.authenticate(config.authToken); // Authenticate again if the auth has timed out
-            const character = await characterAI.fetchCharacter(client.activeCharacter); // Get character by charID
-            
-            await character.createDM(false) // Creates a new dm, without the AI replying
-
-            return interaction.reply("Messages have been saved and a new DM has been opened.")
-        } catch (error) { // If something goes wrong:
-            console.log(error)
-            return interaction.reply("Something went wrong, chat has not been cleared.") // Return feedback to the user
+            // Apaga as últimas 99 mensagens do canal
+            const deleted = await interaction.channel.bulkDelete(99, true);
+            return interaction.editReply({ 
+                content: `Sucesso! Foram apagadas ${deleted.size} mensagens deste canal.` 
+            });
+        } catch (error) {
+            console.error(error);
+            return interaction.editReply({ 
+                content: 'Ocorreu um erro ao tentar apagar as mensagens deste canal. Mensagens com mais de 14 dias não podem ser apagadas em massa.' 
+            });
         }
-    }
-}
+    },
+};
