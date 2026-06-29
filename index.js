@@ -1,11 +1,22 @@
 const { Client, GatewayIntentBits, Collection } = require("discord.js");
 const Groq = require("groq-sdk");
-const config = require("./config.json");
 const fs = require("fs");
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord.js');
 
-// Inicializa a IA da Groq
+// Configuração Inteligente: Lê o config.json local se existir, senão puxa da Render (Ambiente)
+let config = {};
+if (fs.existsSync("./config.json")) {
+    config = require("./config.json");
+} else {
+    config = {
+        token: process.env.DISCORD_TOKEN,
+        groqKey: process.env.GROQ_KEY,
+        personalidade: process.env.PERSONALIDADE
+    };
+}
+
+// Inicializa a IA da Groq com a chave correspondente
 const groq = new Groq({ apiKey: config.groqKey });
 
 const client = new Client({ 
@@ -29,21 +40,21 @@ for (const file of commandFiles) {
     console.log(`[Command] - ${command.data.name}.js carregado com sucesso.`);
 }
 
-// Função que conversa com a Groq (Usa o modelo Llama 3 que aceita personalidades perfeitamente)
+// Função de comunicação com a Groq
 async function perguntarAoGroq(nomeUsuario, texto) {
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages: [
                 {
                     role: "system",
-                    content: config.personalidade // Força a personalidade aqui
+                    content: config.personalidade
                 },
                 {
                     role: "user",
                     content: `Usuário [${nomeUsuario}] diz: ${texto}`
                 }
             ],
-            model: "llama-3.3-70b-versatile", // Modelo ultra-rápido da Meta
+            model: "llama-3.3-70b-versatile",
             temperature: 0.7,
         });
 
@@ -55,7 +66,7 @@ async function perguntarAoGroq(nomeUsuario, texto) {
 }
 
 client.once("ready", async () => {
-    console.log(`${client.user.username} está online e usando a IA da Groq!`);
+    console.log(`${client.user.username} está online e pronto na nuvem!`);
     console.log("A atualizar os comandos (/)...");
     
     const rest = new REST({ version: '10' }).setToken(config.token);
@@ -83,7 +94,6 @@ client.on("messageCreate", async message => {
 
     message.channel.sendTyping();
     
-    // Envia a pergunta para a Groq
     const respostaIA = await perguntarAoGroq(message.author.username, msgText);
     return message.reply(respostaIA);
 });
