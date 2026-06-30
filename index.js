@@ -69,39 +69,61 @@ function precisaDeInternet(texto) {
     return termosBusca.some(termo => textoMinusculo.includes(termo));
 }
 
-// FUNÇÃO AUXILIAR: Faz busca nativa com filtros de limpeza aprimorados no DuckDuckGo
+// FUNÇÃO AUXILIAR: Sistema de busca inteligente de dupla camada (JSON Oficial + HTML Estrito)
 function buscarNaWebNativo(query) {
     return new Promise((resolve) => {
-        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        // Camada 1: Consulta a API Oficial de Respostas do DDG (Livre de bloqueios, retorna JSON limpo)
+        const urlApi = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
         
-        const options = {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-            }
-        };
-
-        https.get(url, options, (res) => {
+        https.get(urlApi, (res) => {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
-                const regex = /class="[^"]*snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
-                let resultados = [];
-                let match;
-                while ((match = regex.exec(data)) !== null && resultados.length < 3) {
-                    let textoLimpo = match[1]
-                        .replace(/<[^>]*>/g, '') 
-                        .replace(/\s+/g, ' ')    
-                        .trim();
-                    if (textoLimpo && textoLimpo.length > 10) {
-                        resultados.push(textoLimpo);
+                try {
+                    const json = JSON.parse(data);
+                    if (json.AbstractText) {
+                        console.log("[Busca Web] Dados obtidos via API Oficial JSON.");
+                        return resolve(`Resumo do assunto: ${json.AbstractText}`);
                     }
-                }
-                resolve(resultados.join(" | "));
+                } catch (e) { /* Fallback para o HTML caso o JSON falhe ou venha vazio */ }
+                
+                // Camada 2: Se a API não tiver resumo direto (ex: notícias), tenta a página HTML de forma protegida
+                const urlHtml = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+                const options = {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+                    }
+                };
+                
+                https.get(urlHtml, options, (resHtml) => {
+                    let htmlData = '';
+                    resHtml.on('data', (chunk) => { htmlData += chunk; });
+                    resHtml.on('end', () => {
+                        // Anti-Bloqueio: Se a nuvem barrou o IP da Render, cancela para não injetar lixo
+                        if (htmlData.includes("ddg-captcha") || htmlData.includes("Unusual traffic") || htmlData.length < 1000) {
+                            console.log("[Busca Web] Bloqueio/CAPTCHA detectado no HTML. Ignorando resultados falsos.");
+                            return resolve("");
+                        }
+                        
+                        // Captura cirúrgica: Apenas links de snippets reais de resultados
+                        const regex = /<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+                        let resultados = [];
+                        let match;
+                        while ((match = regex.exec(htmlData)) !== null && resultados.length < 3) {
+                            let textoLimpo = match[1]
+                                .replace(/<[^>]*>/g, '') 
+                                .replace(/\s+/g, ' ')
+                                .trim();
+                            if (textoLimpo && textoLimpo.length > 15) {
+                                resultados.push(textoLimpo);
+                            }
+                        }
+                        console.log(`[Busca Web] HTML escaneado. Encontrados ${resultados.length} trechos úteis.`);
+                        resolve(resultados.join(" | "));
+                    });
+                }).on("error", () => resolve(""));
             });
-        }).on("error", (err) => {
-            console.error("Erro na busca nativa:", err);
-            resolve("");
-        });
+        }).on("error", () => resolve(""));
     });
 }
 
@@ -121,11 +143,11 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
             console.log(`[Busca Web] Buscando informações atuais para: "${textoAtual}"`);
             const dadosBusca = await buscarNaWebNativo(textoAtual);
             
-            if (dadosBusca && dadosBusca.length > 0) {
-                contextoWeb = `\n\n[CONTEXTO ATUAL DA INTERNET]: ${dadosBusca}\nUse essas informações para responder o usuário de forma natural. Lembre-se de manter sua personalidade curta, informal e com sentido.`;
-                console.log(`[Busca Web] Dados encontrados e injetados: ${dadosBusca.slice(0, 80)}...`);
+            if (dadosBusca && dadosBusca.length > 5) {
+                contextoWeb = `\n\n[CONTEXTO ATUAL DA INTERNET]: ${dadosBusca}\nUse essas informações REAIS obtidas agora para responder o usuário. Mantenha sua personalidade curta, informal e com sentido.`;
+                console.log(`[Busca Web] Injetando no cérebro: ${dadosBusca.slice(0, 60)}...`);
             } else {
-                console.log("[Busca Web] Nenhum resultado relevante encontrado no buscador.");
+                console.log("[Busca Web] Sem resultados válidos ou busca bloqueada. Usando conhecimento base.");
             }
         }
 
@@ -161,7 +183,7 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
 
 // Evento quando o bot liga
 client.once("ready", async () => {
-    console.log(`${client.user.username} está online com busca estável nativa!`);
+    console.log(`${client.user.username} está online com busca blindada e pronto na nuvem!`);
     
     client.user.setPresence({
         activities: [{ name: "Conversando no Discord", type: 0 }],
