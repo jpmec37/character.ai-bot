@@ -4,7 +4,7 @@ const fs = require("fs");
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord.js');
 const http = require("http");
-const googleIt = require("google-it");
+const { search } = require("ddg-web-search"); // Nova biblioteca de busca estável
 
 // ================================================================
 // MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER
@@ -63,7 +63,7 @@ function precisaDeInternet(texto) {
     const termosBusca = [
         "pesquisa", "busca", "google", "quem é", "quem foi", "o que é", "noticia", 
         "sobre", "onde fica", "atual", "hoje", "placar", "jogo de ontem", "venceu", 
-        "lançamento", "filme", "preço", "quanto tá", "clima", "tempo"
+        "lançamento", "filme", "preço", "quanto tá", "clima", "tempo", "pesquisar"
     ];
     const textoMinusculo = texto.toLowerCase();
     return termosBusca.some(termo => textoMinusculo.includes(termo));
@@ -81,19 +81,18 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
         
         let contextoWeb = "";
 
-        // Se a pergunta parecer precisar de dados externos, faz o Google de forma invisível
+        // Se a pergunta parecer precisar de dados externos, faz a busca
         if (precisaDeInternet(textoAtual)) {
-            console.log(`[Busca Web] Pesquisando no Google por: "${textoAtual}"`);
+            console.log(`[Busca Web] Buscando informações atuais para: "${textoAtual}"`);
             try {
-                // google-it retorna diretamente um array de resultados
-                const results = await googleIt({ query: textoAtual, disableConsole: true });
+                const results = await search({ query: textoAtual, maxResults: 3 });
                 if (results && results.length > 0) {
-                    // Pega os 3 primeiros resultados resumidos para a IA ler
-                    const trechos = results.slice(0, 3).map(r => `Título: ${r.title}\nResumo: ${r.snippet}`).join("\n\n");
-                    contextoWeb = `\n\n[DADOS DA INTERNET ATUAIS ENCONTRADOS]:\n${trechos}\nUse essas informações para responder de forma natural, mas lembre-se de manter sua personalidade (curta, informal e sem parecer robô).`;
+                    const trechos = results.map(r => `Título: ${r.title}\nResumo: ${r.snippet}\nLink: ${r.url}`).join("\n\n");
+                    contextoWeb = `\n\n[DADOS REAIS DA INTERNET ENCONTRADOS]:\n${trechos}\nUse essas informações atuais obtidas agora na internet para responder o usuário de forma natural e precisa. Mantenha sua personalidade curta, informal e com sentido.`;
+                    console.log(`[Busca Web] Sucesso! Encontrados ${results.length} resultados.`);
                 }
             } catch (searchErr) {
-                console.error("Erro ao pesquisar no Google:", searchErr);
+                console.error("Erro ao buscar na Web:", searchErr);
             }
         }
 
@@ -129,7 +128,7 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
 
 // Evento quando o bot liga
 client.once("ready", async () => {
-    console.log(`${client.user.username} está online com Busca Web e pronto na nuvem!`);
+    console.log(`${client.user.username} está online com Busca Web Estável e pronto na nuvem!`);
     
     client.user.setPresence({
         activities: [{ name: "Conversando no Discord", type: 0 }],

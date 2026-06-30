@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "@discordjs/rest": "^2.2.0",
+    "ddg-web-search": "^1.1.0",
     "discord.js": "^14.14.1",
-    "google-it": "^1.6.4",
     "groq-sdk": "^0.3.3"
   },
   "engines": {
