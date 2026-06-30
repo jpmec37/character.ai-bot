@@ -4,7 +4,7 @@ const fs = require("fs");
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord.js');
 const http = require("http");
-const https = require("https"); // Usando o módulo nativo do Node.js
+const https = require("https"); // Módulo nativo para buscar na web sem erros
 
 // ================================================================
 // MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER
@@ -69,14 +69,14 @@ function precisaDeInternet(texto) {
     return termosBusca.some(termo => textoMinusculo.includes(termo));
 }
 
-// FUNÇÃO AUXILIAR: Faz busca nativa usando uma API livre do DuckDuckGo
+// FUNÇÃO AUXILIAR: Faz busca nativa com filtros de limpeza aprimorados no DuckDuckGo
 function buscarNaWebNativo(query) {
     return new Promise((resolve) => {
         const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
         
         const options = {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
             }
         };
 
@@ -84,13 +84,17 @@ function buscarNaWebNativo(query) {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
-                // Raspagem ultra simples dos blocos de texto principais das tags HTML retornadas
-                const regex = /<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+                const regex = /class="[^"]*snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
                 let resultados = [];
                 let match;
                 while ((match = regex.exec(data)) !== null && resultados.length < 3) {
-                    let textoLimpo = match[1].replace(/<[^>]*>/g, '').trim();
-                    if (textoLimpo) resultados.push(textoLimpo);
+                    let textoLimpo = match[1]
+                        .replace(/<[^>]*>/g, '') 
+                        .replace(/\s+/g, ' ')    
+                        .trim();
+                    if (textoLimpo && textoLimpo.length > 10) {
+                        resultados.push(textoLimpo);
+                    }
                 }
                 resolve(resultados.join(" | "));
             });
@@ -116,9 +120,12 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
         if (precisaDeInternet(textoAtual)) {
             console.log(`[Busca Web] Buscando informações atuais para: "${textoAtual}"`);
             const dadosBusca = await buscarNaWebNativo(textoAtual);
-            if (dadosBusca) {
+            
+            if (dadosBusca && dadosBusca.length > 0) {
                 contextoWeb = `\n\n[CONTEXTO ATUAL DA INTERNET]: ${dadosBusca}\nUse essas informações para responder o usuário de forma natural. Lembre-se de manter sua personalidade curta, informal e com sentido.`;
-                console.log("[Busca Web] Dados acoplados com sucesso!");
+                console.log(`[Busca Web] Dados encontrados e injetados: ${dadosBusca.slice(0, 80)}...`);
+            } else {
+                console.log("[Busca Web] Nenhum resultado relevante encontrado no buscador.");
             }
         }
 
