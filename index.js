@@ -4,7 +4,7 @@ const fs = require("fs");
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord.js');
 const http = require("http");
-const { search } = require("ddg-web-search"); // Nova biblioteca de busca estável
+const https = require("https"); // Usando o módulo nativo do Node.js
 
 // ================================================================
 // MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER
@@ -69,6 +69,38 @@ function precisaDeInternet(texto) {
     return termosBusca.some(termo => textoMinusculo.includes(termo));
 }
 
+// FUNÇÃO AUXILIAR: Faz busca nativa usando uma API livre do DuckDuckGo
+function buscarNaWebNativo(query) {
+    return new Promise((resolve) => {
+        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        
+        const options = {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        };
+
+        https.get(url, options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+                // Raspagem ultra simples dos blocos de texto principais das tags HTML retornadas
+                const regex = /<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+                let resultados = [];
+                let match;
+                while ((match = regex.exec(data)) !== null && resultados.length < 3) {
+                    let textoLimpo = match[1].replace(/<[^>]*>/g, '').trim();
+                    if (textoLimpo) resultados.push(textoLimpo);
+                }
+                resolve(resultados.join(" | "));
+            });
+        }).on("error", (err) => {
+            console.error("Erro na busca nativa:", err);
+            resolve("");
+        });
+    });
+}
+
 // FUNÇÃO DE COMUNICAÇÃO COM O GROQ (MEMÓRIA + BUSCA WEB + PERSONALIDADE)
 async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtual) {
     try {
@@ -81,18 +113,12 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
         
         let contextoWeb = "";
 
-        // Se a pergunta parecer precisar de dados externos, faz a busca
         if (precisaDeInternet(textoAtual)) {
             console.log(`[Busca Web] Buscando informações atuais para: "${textoAtual}"`);
-            try {
-                const results = await search({ query: textoAtual, maxResults: 3 });
-                if (results && results.length > 0) {
-                    const trechos = results.map(r => `Título: ${r.title}\nResumo: ${r.snippet}\nLink: ${r.url}`).join("\n\n");
-                    contextoWeb = `\n\n[DADOS REAIS DA INTERNET ENCONTRADOS]:\n${trechos}\nUse essas informações atuais obtidas agora na internet para responder o usuário de forma natural e precisa. Mantenha sua personalidade curta, informal e com sentido.`;
-                    console.log(`[Busca Web] Sucesso! Encontrados ${results.length} resultados.`);
-                }
-            } catch (searchErr) {
-                console.error("Erro ao buscar na Web:", searchErr);
+            const dadosBusca = await buscarNaWebNativo(textoAtual);
+            if (dadosBusca) {
+                contextoWeb = `\n\n[CONTEXTO ATUAL DA INTERNET]: ${dadosBusca}\nUse essas informações para responder o usuário de forma natural. Lembre-se de manter sua personalidade curta, informal e com sentido.`;
+                console.log("[Busca Web] Dados acoplados com sucesso!");
             }
         }
 
@@ -128,7 +154,7 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
 
 // Evento quando o bot liga
 client.once("ready", async () => {
-    console.log(`${client.user.username} está online com Busca Web Estável e pronto na nuvem!`);
+    console.log(`${client.user.username} está online com busca estável nativa!`);
     
     client.user.setPresence({
         activities: [{ name: "Conversando no Discord", type: 0 }],
