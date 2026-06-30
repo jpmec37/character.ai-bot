@@ -144,15 +144,17 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
             const dadosBusca = await buscarNaWebNativo(textoAtual);
             
             if (dadosBusca && dadosBusca.length > 5) {
-                contextoWeb = `\n\n[CONTEXTO ATUAL DA INTERNET]: ${dadosBusca}\nUse essas informações REAIS obtidas agora para responder o usuário. Mantenha sua personalidade curta, informal e com sentido.`;
-                console.log(`[Busca Web] Injetando no cérebro: ${dadosBusca.slice(0, 60)}...`);
+                // Organiza os dados em tags estritas para a IA saber exatamente o que é fato
+                contextoWeb = `\n\n<DADOS_REAIS_DA_INTERNET>\n${dadosBusca}\n</DADOS_REAIS_DA_INTERNET>\nAVISO: Responda o usuário baseando-se estritamente nesses dados acima. Se a informação não estiver aí, admita que não sabe de forma natural. Não invente nada.`;
+                console.log(`[Busca Web] Injetando dados com segurança.`);
             } else {
-                console.log("[Busca Web] Sem resultados válidos ou busca bloqueada. Usando conhecimento base.");
+                console.log("[Busca Web] Sem resultados válidos. Usando conhecimento base.");
             }
         }
 
+        // Garante que as instruções de quem ele é fiquem separadas dos dados da busca
         const mensagensParaEnviar = [
-            { role: "system", content: sistemaPersonalidade + contextoWeb }
+            { role: "system", content: `${sistemaPersonalidade}${contextoWeb}` }
         ];
 
         historicoUsuario.forEach(msg => mensagensParaEnviar.push(msg));
@@ -161,7 +163,7 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
         const chatCompletion = await groq.chat.completions.create({
             messages: mensagensParaEnviar,
             model: "llama-3.3-70b-versatile",
-            temperature: 0.6,
+            temperature: 0.3, // Temperatura mais baixa = Bot muito mais preciso e sem inventar coisas
         });
 
         const respostaIA = chatCompletion.choices[0]?.message?.content || "Fiquei sem palavras agora...";
@@ -180,7 +182,6 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
         return "Tive um soluço interno aqui, pode repetir?";
     }
 }
-
 // Evento quando o bot liga
 client.once("ready", async () => {
     console.log(`${client.user.username} está online com busca blindada e pronto na nuvem!`);
