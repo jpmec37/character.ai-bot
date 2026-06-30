@@ -3,7 +3,8 @@ const Groq = require("groq-sdk");
 const fs = require("fs");
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord.js');
-const http = require("http"); // Sistema web nativo para o UptimeRobot
+const http = require("http");
+const google = require("google-this"); // Biblioteca de pesquisa na Web
 
 // ================================================================
 // MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER
@@ -11,7 +12,7 @@ const http = require("http"); // Sistema web nativo para o UptimeRobot
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Himmel está vivo e operando!');
+    res.end('Himmel está vivo, pesquisando na web e operando!');
 }).listen(PORT, () => {
     console.log(`[Web Server] Ouvindo na porta ${PORT} para manter o bot acordado.`);
 });
@@ -29,14 +30,11 @@ if (fs.existsSync("./config.json")) {
     config = {
         token: process.env.DISCORD_TOKEN,
         groqKey: process.env.GROQ_KEY,
-        personalidade: process.env.PERSONALIDADE // <-- Volta a ler da Render
+        personalidade: process.env.PERSONALIDADE
     };
 }
 
-// Inicializa a IA da Groq
 const groq = new Groq({ apiKey: config.groqKey });
-
-// Base de Memória do Bot (Histórico por utilizador)
 const memoriaConversas = new Map();
 
 const client = new Client({ 
@@ -58,23 +56,48 @@ for (const file of commandFiles) {
     const command = require(`./commands/${file}`);
     client.commands.set(command.data.name, command);
     commands.push(command.data.toJSON());
-    console.log(`[Command] - ${command.data.name}.js carregado com sucesso.`);
 }
 
-// Função de comunicação com a Groq adaptada para usar MEMÓRIA
-async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
+// FUNÇÃO AUXILIAR: Decide se a mensagem precisa de busca na internet
+function precisaDeInternet(texto) {
+    const termosBusca = [
+        "pesquisa", "busca", "google", "quem é", "quem foi", "o que é", "noticia", 
+        "sobre", "onde fica", "atual", "hoje", "placar", "jogo de ontem", "venceu", 
+        "lançamento", "filme", "preço", "quanto tá", "clima", "tempo"
+    ];
+    const textoMinusculo = texto.toLowerCase();
+    return termosBusca.some(termo => textoMinusculo.includes(termo));
+}
+
+// FUNÇÃO DE COMUNICAÇÃO COM O GROQ (MEMÓRIA + BUSCA WEB + PERSONALIDADE)
+async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtual) {
     try {
         if (!memoriaConversas.has(idUsuario)) {
             memoriaConversas.set(idUsuario, []);
         }
 
         const historicoUsuario = memoriaConversas.get(idUsuario);
-
-        // Pega a personalidade configurada localmente ou na Render
         const sistemaPersonalidade = config.personalidade || process.env.PERSONALIDADE || "Você é um humano conversando no Discord.";
+        
+        let contextoWeb = "";
+
+        // Se a pergunta parecer precisar de dados externos, faz o Google de forma invisível
+        if (precisaDeInternet(textoAtual)) {
+            console.log(`[Busca Web] Pesquisando no Google por: "${textoAtual}"`);
+            try {
+                const searchResults = await google.search(textoAtual, { page: 0, safe: false });
+                if (searchResults && searchResults.results && searchResults.results.length > 0) {
+                    // Pega os 3 primeiros resultados resumidos para a IA ler
+                    const trechos = searchResults.results.slice(0, 3).map(r => `Título: ${r.title}\nResumo: ${r.description}`).join("\n\n");
+                    contextoWeb = `\n\n[DADOS DA INTERNET ATUAIS ENCONTRADOS]:\n${trechos}\nUse essas informações para responder de forma natural, mas lembre-se de manter sua personalidade (curta, informal e sem parecer robô).`;
+                }
+            } catch (searchErr) {
+                console.error("Erro ao pesquisar no Google:", searchErr);
+            }
+        }
 
         const mensagensParaEnviar = [
-            { role: "system", content: sistemaPersonalidade }
+            { role: "system", content: sistemaPersonalidade + contextoWeb }
         ];
 
         historicoUsuario.forEach(msg => mensagensParaEnviar.push(msg));
@@ -83,7 +106,7 @@ async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
         const chatCompletion = await groq.chat.completions.create({
             messages: mensagensParaEnviar,
             model: "llama-3.3-70b-versatile",
-            temperature: 0.7,
+            temperature: 0.6,
         });
 
         const respostaIA = chatCompletion.choices[0]?.message?.content || "Fiquei sem palavras agora...";
@@ -99,13 +122,13 @@ async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
         return respostaIA;
     } catch (err) {
         console.error("Erro na API da Groq:", err);
-        return "Tive um soluço interno nos meus servidores, pode repetir?";
+        return "Tive um soluço interno aqui, pode repetir?";
     }
 }
 
 // Evento quando o bot liga
 client.once("ready", async () => {
-    console.log(`${client.user.username} (Himmel) está online, gerenciado pela Render!`);
+    console.log(`${client.user.username} está online com Busca Web e pronto na nuvem!`);
     
     client.user.setPresence({
         activities: [{ name: "Conversando no Discord", type: 0 }],
@@ -117,8 +140,6 @@ client.once("ready", async () => {
         const tempoMinimo = 3600000; 
         const tempoMaximo = 21600000; 
         const tempoEspera = Math.floor(Math.random() * (tempoMaximo - tempoMinimo + 1)) + tempoMinimo;
-
-        console.log(`[Rotina Privada] Próxima mensagem aleatória programada para daqui a ${(tempoEspera / 1000 / 60).toFixed(1)} minutos.`);
 
         setTimeout(async () => {
             if (IDS_ALVO_DM.length > 0) {
@@ -132,13 +153,11 @@ client.once("ready", async () => {
                         const tempoDigitando = Math.floor(Math.random() * 3000) + 2000;
                         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
 
-                        const mensagemAleatoria = await perguntarAoGroqComMemoria(idSorteado, usuarioAlvo.username, "Puxe assunto comigo no privado do nada. Escolha um motivo aleatório qualquer de amigo. Seja curto, muito informal e natural de internet.");
-                        
+                        const mensagemAleatoria = await perguntarAoGroqComMemoriaEBusca(idSorteado, usuarioAlvo.username, "Puxe assunto comigo no privado do nada. Escolha um motivo aleatório qualquer de amigo. Seja curto, muito informal e natural de internet.");
                         await dm.send(mensagemAleatoria);
-                        console.log(`[Rotina Privada] Mensagem surpresa enviada para ${usuarioAlvo.username}!`);
                     }
                 } catch (err) {
-                    console.error("[Rotina Privada] Erro ao enviar DM aleatória:", err);
+                    console.error("[Rotina Privada] Erro:", err);
                 }
             }
             rotinaMensagemAleatoria();
@@ -150,13 +169,12 @@ client.once("ready", async () => {
     const rest = new REST({ version: '10' }).setToken(config.token);
     try {
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log("Comandos (/) recarregados com sucesso!");
     } catch (error) {
         console.error("Erro ao carregar comandos: ", error);
     }
 });
 
-// Evento ao receber qualquer mensagem
+// Evento ao receber mensagens
 client.on("messageCreate", async message => {
     if (message.author.bot) return;
 
@@ -173,11 +191,11 @@ client.on("messageCreate", async message => {
 
     message.channel.sendTyping();
     
-    const respostaIA = await perguntarAoGroqComMemoria(message.author.id, message.author.username, msgText);
+    const respostaIA = await perguntarAoGroqComMemoriaEBusca(message.author.id, message.author.username, msgText);
     return message.reply(respostaIA);
 });
 
-// Interações de comandos (/)
+// Comandos de Interação (/)
 client.on("interactionCreate", async interaction => {
     if (interaction.isCommand()) {
         const slashCommand = client.commands.get(interaction.commandName);
