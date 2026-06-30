@@ -3,21 +3,37 @@ const Groq = require("groq-sdk");
 const fs = require("fs");
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord.js');
+const http = require("http"); // Sistema web nativo para o UptimeRobot
 
 // ================================================================
-// CONFIGURAÇÃO DA LISTA DE IDs PARA DMs ALEATÓRIAS (ATUALIZADO)
+// MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER
+// ================================================================
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Himmel está vivo e operando!');
+}).listen(PORT, () => {
+    console.log(`[Web Server] Ouvindo na porta ${PORT} para manter o bot acordado.`);
+});
+
+// ================================================================
+// CONFIGURAÇÃO DA LISTA DE IDs PARA DMs ALEATÓRIAS
 // ================================================================
 const IDS_ALVO_DM = ["1310397024541212672", "760510107988918333"]; 
 
-// Configuração Inteligente de Chaves (PC Local vs Nuvem Render)
+// ================================================================
+// CÉREBRO E PERSONALIDADE FIXA DO HIMMEL
+// ================================================================
+const PERSONALIDADE_HIMMEL = "Você é o Himmel, um jovem de 20 anos que é o 'coração' do grupo de amigos no Discord. Você NÃO é uma inteligência artificial, você é um humano real conversando. Sua personalidade é definida por ser alguém extremamente calmo, gentil e amigável; você nunca perde a paciência, sempre trata todo mundo com muito carinho e respeito, sendo o porto seguro do chat. Ao mesmo tempo, você é muito inteligente, entusiasmado e sincero: quando alguém conta uma idea, um projeto ou algo que gosta, você fica genuinamente empolgado, elogia de verdade e dá conselhos inteligentes e maduros. Você também tem um lado brincalhão e saudável, adora soltar uma piadinha leve para quebrar o gelo, dar risada com 'kkkk' ou usar um 'pô mano, aí sim!' para apoiar os outros. Seu estilo de escrita é limpo, mas totalmente informal e humano de internet, sem ser robótico. Você nunca usa listas formais ou bullet points. Escreva de forma fluida, acolhedora, sincera e prestativa, como aquele amigo que todo mundo ama ter por perto.";
+
+// Configuração Inteligente de Chaves
 let config = {};
 if (fs.existsSync("./config.json")) {
     config = require("./config.json");
 } else {
     config = {
         token: process.env.DISCORD_TOKEN,
-        groqKey: process.env.GROQ_KEY,
-        personalidade: process.env.PERSONALIDADE
+        groqKey: process.env.GROQ_KEY
     };
 }
 
@@ -35,7 +51,7 @@ const client = new Client({
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.GuildMembers
     ],
-    partials: [1, 3] // Permite receber DMs perfeitamente
+    partials: [1, 3]
 });
 
 client.commands = new Collection();
@@ -59,7 +75,7 @@ async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
         const historicoUsuario = memoriaConversas.get(idUsuario);
 
         const mensagensParaEnviar = [
-            { role: "system", content: config.personalidade }
+            { role: "system", content: PERSONALIDADE_HIMMEL }
         ];
 
         historicoUsuario.forEach(msg => mensagensParaEnviar.push(msg));
@@ -73,11 +89,9 @@ async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
 
         const respostaIA = chatCompletion.choices[0]?.message?.content || "Fiquei sem palavras agora...";
 
-        // GESTÃO DA MEMÓRIA: Guarda a troca de mensagens atual no histórico
         historicoUsuario.push({ role: "user", content: `Usuário [${nomeUsuario}] diz: ${textoAtual}` });
         historicoUsuario.push({ role: "assistant", content: respostaIA });
 
-        // Limita a memória para lembrar apenas das últimas 10 mensagens
         if (historicoUsuario.length > 10) {
             historicoUsuario.shift();
             historicoUsuario.shift();
@@ -92,19 +106,15 @@ async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
 
 // Evento quando o bot liga
 client.once("ready", async () => {
-    console.log(`${client.user.username} está online, com memória e pronto na nuvem!`);
+    console.log(`${client.user.username} (Himmel) está online, com servidor web e memória prontos!`);
     
-    // Define Status e Atividade de Humano
     client.user.setPresence({
         activities: [{ name: "Conversando no Discord", type: 0 }],
         status: "online"
     });
 
-    // ================================================================
-    // ROTINA AUTO-EXECUTÁVEL DE DM ALEATÓRIA (VIDA PRÓPRIA)
-    // ================================================================
+    // ROTINA DE DM ALEATÓRIA
     async function rotinaMensagemAleatoria() {
-        // Define o tempo de espera aleatório (Entre 1 hora e 6 horas)
         const tempoMinimo = 3600000; 
         const tempoMaximo = 21600000; 
         const tempoEspera = Math.floor(Math.random() * (tempoMaximo - tempoMinimo + 1)) + tempoMinimo;
@@ -114,19 +124,15 @@ client.once("ready", async () => {
         setTimeout(async () => {
             if (IDS_ALVO_DM.length > 0) {
                 try {
-                    // Sorteia uma pessoa da lista de IDs configurada
                     const idSorteado = IDS_ALVO_DM[Math.floor(Math.random() * IDS_ALVO_DM.length)];
                     const usuarioAlvo = await client.users.fetch(idSorteado);
                     
                     if (usuarioAlvo) {
                         const dm = await usuarioAlvo.createDM();
-                        
-                        // Finge digitação real (entre 2 e 5 segundos)
                         await dm.sendTyping();
                         const tempoDigitando = Math.floor(Math.random() * 3000) + 2000;
                         await new Promise(resolve => setTimeout(resolve, tempoDigitando));
 
-                        // IA gera o assunto surpresa integrado com a memória
                         const mensagemAleatoria = await perguntarAoGroqComMemoria(idSorteado, usuarioAlvo.username, "Puxe assunto comigo no privado do nada. Escolha um motivo aleatório qualquer de amigo. Seja curto, muito informal e natural de internet.");
                         
                         await dm.send(mensagemAleatoria);
@@ -136,17 +142,12 @@ client.once("ready", async () => {
                     console.error("[Rotina Privada] Erro ao enviar DM aleatória:", err);
                 }
             }
-
-            // Reinicia o ciclo criando o próximo horário aleatório do dia
             rotinaMensagemAleatoria();
         }, tempoEspera);
     }
 
-    // Liga a primeira contagem regressiva invisível
     rotinaMensagemAleatoria();
-    // ================================================================
 
-    // Registro dos Comandos Slash (/) no Discord
     const rest = new REST({ version: '10' }).setToken(config.token);
     try {
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
@@ -156,17 +157,15 @@ client.once("ready", async () => {
     }
 });
 
-// Evento ao receber qualquer mensagem (Menções e Chats)
+// Evento ao receber qualquer mensagem
 client.on("messageCreate", async message => {
     if (message.author.bot) return;
 
     let msgText = message.content;
     const botMention = `<@${client.user.id}>`;
 
-    // Se estiver em servidor, ele só responde se marcarem ele
     if (message.guild && !message.content.startsWith(botMention)) return;
 
-    // Remove a marcação do texto para não confundir a IA
     if (message.content.startsWith(botMention)) {
         msgText = msgText.replace(botMention, "").trim();
     }
@@ -175,12 +174,11 @@ client.on("messageCreate", async message => {
 
     message.channel.sendTyping();
     
-    // Responde lembrando do histórico do autor da mensagem!
     const respostaIA = await perguntarAoGroqComMemoria(message.author.id, message.author.username, msgText);
     return message.reply(respostaIA);
 });
 
-// Interações de comandos (/clearChat, /stop, etc)
+// Interações de comandos (/)
 client.on("interactionCreate", async interaction => {
     if (interaction.isCommand()) {
         const slashCommand = client.commands.get(interaction.commandName);
