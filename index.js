@@ -4,7 +4,7 @@ const fs = require("fs");
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord.js');
 const http = require("http");
-const google = require("google-this"); // Biblioteca de pesquisa na Web
+const googleIt = require("google-it");
 
 // ================================================================
 // MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER
@@ -85,10 +85,11 @@ async function perguntarAoGroqComMemoriaEBusca(idUsuario, nomeUsuario, textoAtua
         if (precisaDeInternet(textoAtual)) {
             console.log(`[Busca Web] Pesquisando no Google por: "${textoAtual}"`);
             try {
-                const searchResults = await google.search(textoAtual, { page: 0, safe: false });
-                if (searchResults && searchResults.results && searchResults.results.length > 0) {
+                // google-it retorna diretamente um array de resultados
+                const results = await googleIt({ query: textoAtual, disableConsole: true });
+                if (results && results.length > 0) {
                     // Pega os 3 primeiros resultados resumidos para a IA ler
-                    const trechos = searchResults.results.slice(0, 3).map(r => `Título: ${r.title}\nResumo: ${r.description}`).join("\n\n");
+                    const trechos = results.slice(0, 3).map(r => `Título: ${r.title}\nResumo: ${r.snippet}`).join("\n\n");
                     contextoWeb = `\n\n[DADOS DA INTERNET ATUAIS ENCONTRADOS]:\n${trechos}\nUse essas informações para responder de forma natural, mas lembre-se de manter sua personalidade (curta, informal e sem parecer robô).`;
                 }
             } catch (searchErr) {
