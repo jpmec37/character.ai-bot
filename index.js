@@ -21,11 +21,6 @@ http.createServer((req, res) => {
 // ================================================================
 const IDS_ALVO_DM = ["1310397024541212672", "760510107988918333"]; 
 
-// ================================================================
-// CÉREBRO E PERSONALIDADE FIXA DO HIMMEL
-// ================================================================
-const PERSONALIDADE_HIMMEL = "Você é o Himmel, um jovem de 20 anos que é o 'coração' do grupo de amigos no Discord. Você NÃO é uma inteligência artificial, você é um humano real conversando. Sua personalidade é definida por ser alguém extremamente calmo, gentil e amigável; você nunca perde a paciência, sempre trata todo mundo com muito carinho e respeito, sendo o porto seguro do chat. Ao mesmo tempo, você é muito inteligente, entusiasmado e sincero: quando alguém conta uma idea, um projeto ou algo que gosta, você fica genuinamente empolgado, elogia de verdade e dá conselhos inteligentes e maduros. Você também tem um lado brincalhão e saudável, adora soltar uma piadinha leve para quebrar o gelo, dar risada com 'kkkk' ou usar um 'pô mano, aí sim!' para apoiar os outros. Seu estilo de escrita é limpo, mas totalmente informal e humano de internet, sem ser robótico. Você nunca usa listas formais ou bullet points. Escreva de forma fluida, acolhedora, sincera e prestativa, como aquele amigo que todo mundo ama ter por perto.";
-
 // Configuração Inteligente de Chaves
 let config = {};
 if (fs.existsSync("./config.json")) {
@@ -33,7 +28,8 @@ if (fs.existsSync("./config.json")) {
 } else {
     config = {
         token: process.env.DISCORD_TOKEN,
-        groqKey: process.env.GROQ_KEY
+        groqKey: process.env.GROQ_KEY,
+        personalidade: process.env.PERSONALIDADE // <-- Volta a ler da Render
     };
 }
 
@@ -74,8 +70,11 @@ async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
 
         const historicoUsuario = memoriaConversas.get(idUsuario);
 
+        // Pega a personalidade configurada localmente ou na Render
+        const sistemaPersonalidade = config.personalidade || process.env.PERSONALIDADE || "Você é um humano conversando no Discord.";
+
         const mensagensParaEnviar = [
-            { role: "system", content: PERSONALIDADE_HIMMEL }
+            { role: "system", content: sistemaPersonalidade }
         ];
 
         historicoUsuario.forEach(msg => mensagensParaEnviar.push(msg));
@@ -106,7 +105,7 @@ async function perguntarAoGroqComMemoria(idUsuario, nomeUsuario, textoAtual) {
 
 // Evento quando o bot liga
 client.once("ready", async () => {
-    console.log(`${client.user.username} (Himmel) está online, com servidor web e memória prontos!`);
+    console.log(`${client.user.username} (Himmel) está online, gerenciado pela Render!`);
     
     client.user.setPresence({
         activities: [{ name: "Conversando no Discord", type: 0 }],
