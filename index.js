@@ -59,12 +59,14 @@ let bancoLembretes = [];
 if (fs.existsSync("./lembretes.json")) {
   try {
     bancoLembretes = JSON.parse(fs.readFileSync("./lembretes.json", "utf-8"));
+    console.log(
+      `[Lembretes] Carregados ${bancoLembretes.length} lembretes do disco.`,
+    );
   } catch (e) {
     bancoLembretes = [];
   }
 }
 
-// BUGFIX CORRIGIDO: Nome da função junto sem espaços para evitar SyntaxError no Render
 function guardarLembretesNoDisco() {
   fs.writeFileSync(
     "./lembretes.json",
@@ -170,7 +172,7 @@ function buscarNaWebNativo(query) {
 
 async function gerarMensagemUnica(comandoInstrucao) {
   try {
-    const sistemaBase = `Escreva uma resposta corta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases (proibido usar ponto final, exclamação ou interrogação no fim da mensagem). Nunca termine com vírgula. Apenas deixe sem nada no final. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
+    const sistemaBase = `Escreva uma resposta curta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases (proibido usar ponto final, exclamação ou interrogação no fim da mensagem). Nunca termine com vírgula. Apenas deixe sem nada no final. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: sistemaBase }],
       model: "llama-3.3-70b-versatile",
@@ -229,16 +231,16 @@ async function perguntarAoGroqAvancado(
     };
     const dataHoraBrasil = new Date().toLocaleString("pt-BR", opcoesData);
 
+    // Simplificado drasticamente para a IA não se confundir e obedecer sempre!
     const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
-1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase, linha ou mensagem com vírgula (,).
+1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase ou linha com vírgula (,).
 2. ESPELHAMENTO: Leia o histórico e aja naturalmente com o usuário.
 3. INTELIGÊNCIA EMOCIONAL: Amigável com quem é legal, frio/curto com quem é chato.
-4. EMOJIS (QUASE NUNCA USE): Use de forma MUITO rara (ex: em 1 a cada 10 mensagens). Máximo UM no final.
-5. Variação de risada: alterne para "ksksk", "ashuahsu", "mds kkkkk".
-6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
-7. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
-8. SISTEMA DE LEMBRETE (REGRA RESTRITA): APENAS gere um lembrete se o usuário pedir EXPLICITAMENTE na MENSAGEM ATUAL (ex: "me lembra de X"). Ignore coisas do passado. Quando ordenado agora, coloque no final da sua resposta a tag exata: [LEMBRETE: minutos | mensagem_customizada].
-REGRA DE OURO DO LEMBRETE: Em 'mensagem_customizada', crie uma frase de alarme 100% ÚNICA e personalizada para o usuário (ex: 'ow ${nomeUsuario}, passando pra te lembrar de X', 'lembrete pra tu nao esquecer de X kkk'). Essa frase DEVE conter obrigatoriamente a palavra 'lembrar' ou 'lembrete'. Não confirme o lembrete por extenso no seu texto principal; responda apenas concordando normalmente (ex: "beleza", "deixa comigo") e coloque a tag no final. O sistema interno enviará exatamente o texto da sua mensagem_customizada quando o tempo acabar.`;
+4. EMOJIS: Quase nunca use (máximo 1 a cada 10 mensagens).
+5. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
+6. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
+7. SISTEMA DE LEMBRETE: Se o usuário te pedir para lembrar de algo nesta conversa (ex: "me lembra de X em Y minutos"), você DEVE aceitar adicionando EXATAMENTE a seguinte tag no final da sua resposta: [LEMBRETE: minutos | frase_do_alarme]. 
+Substitua 'minutos' pelo número correto e 'frase_do_alarme' por uma frase curta e personalizada sua lembrando ele (ex: "ow ${nomeUsuario}, lembra de X aí kkk"). Não confirme o agendamento por extenso no corpo do texto, apenas aja normalmente (ex: "beleza", "anotado") e jogue a tag no fim do texto.`;
 
     const sistemaPersonalidade =
       (config.personalidade ||
@@ -265,7 +267,7 @@ REGRA DE OURO DO LEMBRETE: Em 'mensagem_customizada', crie uma frase de alarme 1
     const chatCompletion = await groq.chat.completions.create({
       messages: mensagensParaEnviar,
       model: "llama-3.3-70b-versatile",
-      temperature: 0.35,
+      temperature: 0.55, // Aumentado levemente de 0.35 para 0.55 para a IA ser mais flexível e seguir comandos melhor
     });
 
     return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
@@ -286,7 +288,7 @@ client.once("ready", async () => {
     status: "online",
   });
 
-  // 🕒 VERIFICADOR CRON DE LEMBRETES (Corre a cada 30 segundos)
+  // 🕒 VERIFICADOR CRON DE LEMBRETES (Roda a cada 10 segundos)
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -295,6 +297,9 @@ client.once("ready", async () => {
       const lembrete = bancoLembretes[i];
 
       if (agora >= lembrete.timestampDisparo) {
+        console.log(
+          `[Lembretes] Disparando alarme para o ID ${lembrete.userId}`,
+        );
         try {
           const destino = lembrete.isDM
             ? await client.users.fetch(lembrete.userId)
@@ -321,7 +326,7 @@ client.once("ready", async () => {
     }
 
     if (houveMudanca) guardarLembretesNoDisco();
-  }, 30000);
+  }, 10000);
 
   // DM Aleatória
   async function rotinaMensagemAleatoria() {
@@ -350,7 +355,7 @@ client.once("ready", async () => {
               /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi,
               "",
             );
-            let textoLimpo = messageAleatoria
+            let textoLimpo = mensagemAleatoria
               .toLowerCase()
               .replace(/,+$/, "")
               .trim();
@@ -526,7 +531,7 @@ async function processarMensagemFinal(buffer) {
   if (soMidiaOuLink) {
     await new Promise((r) => setTimeout(r, 3000));
     const respMedia = await gerarMensagemUnica(
-      "Mande uma reação super curta (de 1 a 3 palavras) e informal sobre uma mídia, meme ou link que o usuário acabou de mandar.",
+      "Mande uma reação super curta (de 1 a 3 words) e informal sobre uma mídia, meme ou link que o usuário acabou de mandar.",
     );
     const textoFormato = respMedia.toLowerCase().replace(/,+$/, "").trim();
     try {
@@ -621,21 +626,20 @@ async function processarMensagemFinal(buffer) {
     contextoHistorico,
   );
 
-  // ⚡ INTERCEPTADOR BLINDADO CONTRA REPETIÇÕES DE CONTEXTO
+  // ⚡ INTERCEPTADOR INTELIGENTE (FILTRO EM JAVASCRIPT NO LUGAR DA IA)
   const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi;
   let matchLembrete;
   let detetouLembrete = false;
 
-  // Trava de segurança: só cria o lembrete se o utilizador digitou explicitamente palavras de intenção na mensagem atual
-  const usuarioDeFactoPediuLembrete = /(lembra|lembrete|lembrar|agenda)/i.test(
-    msgText,
-  );
+  // O código JS faz a segurança: Só salva se houver alguma intenção real na mensagem atual
+  const textoContemGatilho =
+    /(lembra|lembrete|lembrar|agenda|alarme|avisa|esquecer)/i.test(msgText);
 
   while ((matchLembrete = lembreteRegexGlobal.exec(respostaIA)) !== null) {
     const minutos = parseInt(matchLembrete[1], 10);
     const textoCustomizado = matchLembrete[2].trim();
 
-    if (!isNaN(minutos) && minutos > 0 && usuarioDeFactoPediuLembrete) {
+    if (!isNaN(minutos) && minutos > 0 && textoContemGatilho) {
       bancoLembretes.push({
         userId: message.author.id,
         channelId: message.channel.id,
@@ -644,10 +648,12 @@ async function processarMensagemFinal(buffer) {
         timestampDisparo: Date.now() + minutos * 60 * 1000,
       });
       detetouLembrete = true;
+      console.log(
+        `[Lembretes] Cadastrado com sucesso para daqui a ${minutos} minutos.`,
+      );
     }
   }
 
-  // Remove as tags de qualquer forma para não poluir o chat caso a IA sofra de alucinação de contexto
   respostaIA = respostaIA.replace(lembreteRegexGlobal, "").trim();
 
   if (detetouLembrete) {
@@ -663,26 +669,26 @@ async function processarMensagemFinal(buffer) {
   await new Promise((resolve) => setTimeout(resolve, tempoDigitando));
   clearInterval(typingInterval);
 
-  let phrases = [respostaIA];
+  let frases = [respostaIA];
   if (Math.random() < 0.3 && respostaIA.length > 30) {
     let quebradas = respostaIA
       .split(/(?<=[,\n])\s+/)
       .filter((f) => f.trim().length > 0);
     if (quebradas.length > 1) {
       if (quebradas.length > 4) {
-        phrases = [
+        frases = [
           quebradas.slice(0, 2).join(" "),
           quebradas.slice(2, 4).join(" "),
           quebradas.slice(4).join(" "),
         ].filter((f) => f.trim().length > 0);
       } else {
-        phrases = quebradas;
+        frases = quebradas;
       }
     }
   }
 
-  for (let i = 0; i < phrases.length; i++) {
-    let textoFinal = phrases[i].toLowerCase().trim();
+  for (let i = 0; i < frases.length; i++) {
+    let textoFinal = frases[i].toLowerCase().trim();
     textoFinal = textoFinal.replace(/,+$/, "");
     if (textoFinal.length === 0) continue;
 
