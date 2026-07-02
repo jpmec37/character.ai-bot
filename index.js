@@ -411,7 +411,7 @@ client.on("messageCreate", async (message) => {
 });
 
 // -----------------------------------------------------------
-// ENGINE DE PROCESSAMENTO FINAL
+// ENGINE DE PROCESSAMENTO FINAL - SEM REPLY / RESPOSTA DIRETA
 // -----------------------------------------------------------
 async function processarMensagemFinal(buffer) {
   const message = buffer.lastMessageObj;
@@ -421,7 +421,6 @@ async function processarMensagemFinal(buffer) {
   let msgText = buffer.textParts.join(" ... ");
   let foiMencionado = buffer.wasMentioned;
 
-  // Se for servidor e não houver menção/chat morto aleatório, ignora
   if (message.guild && !foiMencionado) {
     if (
       !["jogo", "ia", "discord", "bot"].some((k) =>
@@ -448,7 +447,6 @@ async function processarMensagemFinal(buffer) {
     contexto,
   );
 
-  // ANALISADOR E CAPTURADOR DE TAGS DE LEMBRETE
   const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi;
   let match;
   let criouLembrete = false;
@@ -473,12 +471,10 @@ async function processarMensagemFinal(buffer) {
   }
 
   if (criouLembrete) {
-    // Vincula as mensagens desse gatilho atual na lista negra de histórico antigo
     buffer.msgIds.forEach((id) => {
       if (!idsComandosExecutados.includes(id)) idsComandosExecutados.push(id);
     });
 
-    // Mantém a lista sob controle de memória
     if (idsComandosExecutados.length > 300)
       idsComandosExecutados = idsComandosExecutados.slice(-300);
 
@@ -486,17 +482,11 @@ async function processarMensagemFinal(buffer) {
     guardarLembretesNoDisco();
   }
 
-  // Envio formatado e humanizado no chat
   let textoFinal = resposta.toLowerCase().replace(/,+$/, "").trim();
   if (textoFinal.length > 0) {
-    try {
-      await message.reply({
-        content: textoFinal,
-        allowedMentions: { repliedUser: false },
-      });
-    } catch (e) {
-      await message.channel.send(textoFinal).catch(() => {});
-    }
+    // CORREÇÃO AQUI: Mudado de message.reply para message.channel.send
+    // para nunca usar a função de citação nativa do Discord.
+    await message.channel.send(textoFinal).catch(() => {});
   }
 }
 
