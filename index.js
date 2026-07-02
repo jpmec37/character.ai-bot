@@ -101,11 +101,12 @@ function buscarNaWebNativo(query) {
 }
 
 // -----------------------------------------------------------
-// 🧠 MEMÓRIA RESILIENTE (Agora lê 30 mensagens)
+// 🧠 MEMÓRIA RESILIENTE MÁXIMA (Agora lê até 100 mensagens)
 // -----------------------------------------------------------
 async function reconstruirContexto(channel, ignoreIds = []) {
     try {
-        const fetched = await channel.messages.fetch({ limit: 30 }); 
+        // Limite máximo seguro do Discord por requisição e limite prático para a IA não travar
+        const fetched = await channel.messages.fetch({ limit: 100 }); 
         const mensagens = [];
         fetched.reverse().forEach(msg => {
             if (msg.content.trim() === '' || ignoreIds.includes(msg.id)) return;
@@ -132,7 +133,7 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
 1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases).
 2. ESPELHAMENTO: Leia o histórico. Absorva e repita naturalmente algumas gírias ou trejeitos que o usuário usar, mas sem forçar muito.
 3. INTELIGÊNCIA EMOCIONAL: Aja conforme é tratado. Se o usuário for amigável, seja parceiro. Se ele for chato, grosso, seco ou te encher o saco, seja frio, irônico, de respostas curtas ou demonstre preguiça de falar com ele.
-4. EMOJIS (MÁXIMO 1 POR RESPOSTA): Não coloque no meio da frase. Use Apenas 1 no final e de vez em quando. Escolha um destes: 💀, 😭, 🤓, 🤡, 🤨, 🐒, 👀, 🤙, 😂, 🔥, 😎.
+4. EMOJIS (QUASE NUNCA USE): Use emojis de forma MUITO rara (ex: em 1 a cada 10 mensagens). Você não liga pra emojis. Se for obrigado a usar, use no máximo UM, no final da frase. Opções: 💀, 😭, 🤓, 🤡, 🤨, 🐒, 👀, 🤙, 😂, 🔥, 😎.
 5. Variação de risada: nunca use sempre "kkk". Alterne para "ksksk", "ashuahsu", "mds kkkkk".
 6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome dele.
 7. O horário atual no Brasil agora é ${dataHoraBrasil}.`;
@@ -167,7 +168,7 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
 // EVENTOS DE START E ROTINAS
 // -----------------------------------------------------------
 client.once("ready", async () => {
-    console.log(`${client.user.username} (Self-Bot Humanizado Final V7) operante e sem pings chatos!`);
+    console.log(`${client.user.username} (Self-Bot Humanizado V8) operante com 100 mensagens de memória!`);
     client.user.setPresence({ activities: [{ name: "conversando", type: 0 }], status: "online" });
 
     // DM Aleatória
@@ -240,7 +241,6 @@ client.on("messageCreate", async message => {
                 clearTimeout(userMessageBuffers.get(bufferKeyParaLimpar).timer);
                 userMessageBuffers.delete(bufferKeyParaLimpar);
             }
-            // Reposta de Saco Cheio SEM pingar a pessoa
             return message.reply({ content: "mano calma kk deixa eu respirar crlh, pera ae", allowedMentions: { repliedUser: false } }).catch(()=>{});
         }
     } else {
@@ -266,7 +266,6 @@ client.on("messageCreate", async message => {
     buffer.msgIds.push(message.id); 
     if (partMentioned) buffer.wasMentioned = true;
     
-    // Identificação aprimorada de mídia (Imagens, links E Figurinhas)
     if (message.attachments.size > 0 || message.content.includes("http") || message.stickers.size > 0) buffer.hasMedia = true;
     
     buffer.lastMessageObj = message;
@@ -306,10 +305,10 @@ async function processarMensagemFinal(buffer) {
         }
     }
 
-    // SISTEMA DE VÁCUO (HUMANIDADE)
+    // SISTEMA DE VÁCUO
     if (msgText.length === 0 || msgText === "..." || msgText.toLowerCase() === "hm") {
         if (Math.random() < 0.20) {
-            return message.react('👀').catch(()=>{}); // Te ignora
+            return message.react('👀').catch(()=>{}); 
         }
         try { 
             return await message.reply({ content: "eai, manda", allowedMentions: { repliedUser: false } }); 
@@ -329,7 +328,7 @@ async function processarMensagemFinal(buffer) {
     if (txtMin.includes("kkk") || txtMin.includes("ksks")) message.react('💀').catch(()=>{});
     else if (txtMin.includes("?") && txtMin.length < 15) message.react('🤔').catch(()=>{});
 
-    // 1. TEMPO DE VISTO/LEITURA (MAIS RÁPIDO: 0.5s a 1.5s)
+    // 1. TEMPO DE VISTO/LEITURA
     const horaBR = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo", hour: "numeric", hour12: false }), 10);
     let tempoLendo = Math.floor(Math.random() * 1000) + 500; 
     let multiplicadorLentidao = 1;
@@ -353,15 +352,14 @@ async function processarMensagemFinal(buffer) {
     if (tempoDigitando > 8000) tempoDigitando = 8000; 
     if (tempoDigitando < 500) tempoDigitando = 500; 
 
-    console.log(`[Digitação] Texto: ${respostaIA.length} chars | Delay: ${(tempoDigitando/1000).toFixed(1)}s (12ms/char)`);
+    console.log(`[Digitação] Texto: ${respostaIA.length} chars | Delay: ${(tempoDigitando/1000).toFixed(1)}s`);
 
     await new Promise(resolve => setTimeout(resolve, tempoDigitando));
     clearInterval(typingInterval); 
 
-    // 4. CORTE INTELIGENTE DE MENSAGEM (Vírgulas ou Quebra de Linha)
+    // 4. CORTE INTELIGENTE DE MENSAGEM 
     let frases = [respostaIA];
     if (Math.random() < 0.30 && respostaIA.length > 30) {
-        // Quebra onde houver vírgula ou Enter em vez de procurar pontos finais
         let quebradas = respostaIA.split(/(?<=[,\n])\s+/).filter(f => f.trim().length > 0);
         if (quebradas.length > 1) {
             if (quebradas.length > 4) {
@@ -381,7 +379,6 @@ async function processarMensagemFinal(buffer) {
 
         try {
             if (i === 0 && isMentioned) {
-                // FIM DO APITO CHATO: Responde marcando a mensagem original, mas sem "pingar" o usuário
                 await message.reply({ content: textoFinal, allowedMentions: { repliedUser: false } }); 
             } else {
                 if (i !== 0) {
@@ -396,7 +393,6 @@ async function processarMensagemFinal(buffer) {
     }
 }
 
-// Slash Commands
 client.on("interactionCreate", async interaction => {
     if (interaction.isCommand()) {
         const slashCommand = client.commands.get(interaction.commandName);
