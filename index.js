@@ -208,10 +208,9 @@ async function gerarMensagemUnica(comandoInstrucao) {
 
 async function reconstruirContexto(channel, ignoreIds = []) {
   try {
-    // Reduzido de 100 para 30 para evitar quebra de limite por tamanho de contexto
     const fetched = await channel.messages.fetch({ limit: 30 });
     const mensagens = [];
-    const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi;
+    const lembreteRegexGlobal = /\[lembrete:\s*.*?\s*\|\s*.*?\]/gi;
 
     fetched.reverse().forEach((msg) => {
       if (msg.content.trim() === "" || ignoreIds.includes(msg.id)) return;
@@ -262,8 +261,8 @@ async function perguntarAoGroqAvancado(
 5. Variação de risada: alterne para "ksksk", "ashuahsu", "mds kkkkk".
 6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
 7. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
-8. SISTEMA DE LEMBRETE (REGRA RESTRITA): APENAS gere um lembrete se o usuário pedir EXPLICITAMENTE na MENSAGEM ATUAL (ex: "me lembra de X"). Ignore coisas do passado. Quando ordenado agora, coloque no final da sua resposta a tag exata: [LEMBRETE: minutos | mensagem_customizada].
-REGRA DE OURO DO LEMBRETE: Em 'mensagem_customizada', crie uma frase de alarme 100% ÚNICA e personalizada para o usuário. Essa frase DEVE conter obrigatoriamente a palavra 'lembrar' ou 'lembrete'. Não confirme o lembrete por extenso no seu texto principal; responda apenas concordando normalmente (ex: "beleza", "deixa comigo") e coloque a tag no final.`;
+8. SISTEMA DE LEMBRETE (REGRA RESTRITA): APENAS gere um lembrete se o usuário pedir EXPLICITAMENTE na MENSAGEM ATUAL (ex: "me lembra de X"). Ignore coisas do passado. Quando ordenado agora, coloque no final da sua resposta a tag exata em letras minúsculas: [lembrete: minutos | mensagem_customizada].
+REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 2, 5, 60). Em 'mensagem_customizada', crie uma frase de alarme 100% ÚNICA e personalizada para o usuário. Essa frase DEVE conter obrigatoriamente a palavra 'lembrar' ou 'lembrete'. Não confirme o lembrete por extenso no seu texto principal; responda apenas concordando normalmente (ex: "beleza", "deixa comigo") e coloque a tag colada no final do seu texto.`;
 
     const sistemaPersonalidade =
       (config.personalidade || "Você é um humano jovem no discord.") +
@@ -291,7 +290,7 @@ REGRA DE OURO DO LEMBRETE: Em 'mensagem_customizada', crie uma frase de alarme 1
     );
     const chatCompletion = await groq.chat.completions.create({
       messages: mensagensParaEnviar,
-      model: "llama-3.1-8b-instant", // Mudado para o modelo estável e imune a estouros de cota rápida
+      model: "llama-3.1-8b-instant",
       temperature: 0.35,
     });
 
@@ -376,7 +375,7 @@ client.once("ready", async () => {
             );
 
             mensagemAleatoria = mensagemAleatoria.replace(
-              /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi,
+              /\[lembrete:\s*.*?\s*\|\s*.*?\]/gi,
               "",
             );
             let textoLimpo = mensagemAleatoria
@@ -631,12 +630,15 @@ async function processarMensagemFinal(buffer) {
     contextoHistorico,
   );
 
-  const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi;
+  // FIX GIGANTE: Expressão Case Insensitive para capturar [lembrete:] ou [LEMBRETE:] com letras e espaços bagunçados
+  const lembreteRegexGlobal = /\[lembrete:\s*(.*?)\s*\|\s*(.*?)\]/gi;
   let matchLembrete;
   let detetouLembrete = false;
 
   while ((matchLembrete = lembreteRegexGlobal.exec(respostaIA)) !== null) {
-    const minutos = parseInt(matchLembrete[1], 10);
+    // Limpa palavras extras que a IA colocar, extraindo apenas os números digitados
+    const apenasNumeros = matchLembrete[1].replace(/\D/g, "");
+    const minutos = parseInt(apenasNumeros, 10);
     const textoCustomizado = matchLembrete[2].trim();
 
     if (!isNaN(minutos) && minutos > 0) {
@@ -649,7 +651,7 @@ async function processarMensagemFinal(buffer) {
       });
       detetouLembrete = true;
       console.log(
-        `\x1b[32m[LOG GESTOR] Novo alarme agendado com sucesso para ${nomeUsuario}.\x1b[0m`,
+        `\x1b[32m[LOG GESTOR] Novo alarme agendado com sucesso para ${nomeUsuario} (${minutos} minutos).\x1b[0m`,
       );
     }
   }
