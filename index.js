@@ -515,7 +515,7 @@ client.on("messageCreate", async (message) => {
 });
 
 // -----------------------------------------------------------
-// PROCESSAMENTO FINAL E ENVIO
+// PROCESSAMENTO FINAL E ENVIO (TRECHO CORRIGIDO)
 // -----------------------------------------------------------
 async function processarMensagemFinal(buffer) {
   const message = buffer.lastMessageObj;
@@ -630,13 +630,15 @@ async function processarMensagemFinal(buffer) {
     contextoHistorico,
   );
 
-  // FIX GIGANTE: Expressão Case Insensitive para capturar [lembrete:] ou [LEMBRETE:] com letras e espaços bagunçados
-  const lembreteRegexGlobal = /\[lembrete:\s*(.*?)\s*\|\s*(.*?)\]/gi;
-  let matchLembrete;
-  let detetouLembrete = false;
+  // ================================================================
+  // SISTEMA CORRIGIDO DE CAPTURA E PARSING DE LEMBRETES
+  // ================================================================
+  const regexLembreteFlexivel =
+    /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i;
+  let matchLembrete = respostaIA.match(regexLembreteFlexivel);
 
-  while ((matchLembrete = lembreteRegexGlobal.exec(respostaIA)) !== null) {
-    // Limpa palavras extras que a IA colocar, extraindo apenas os números digitados
+  if (matchLembrete) {
+    // Remove texto não numérico (limpa "2 minutos" deixando apenas "2")
     const apenasNumeros = matchLembrete[1].replace(/\D/g, "");
     const minutos = parseInt(apenasNumeros, 10);
     const textoCustomizado = matchLembrete[2].trim();
@@ -649,17 +651,18 @@ async function processarMensagemFinal(buffer) {
         textoAlarme: textoCustomizado,
         timestampDisparo: Date.now() + minutos * 60 * 1000,
       });
-      detetouLembrete = true;
+
+      // Força a impressão no console para você acompanhar no painel da Render
       console.log(
-        `\x1b[32m[LOG GESTOR] Novo alarme agendado com sucesso para ${nomeUsuario} (${minutos} minutos).\x1b[0m`,
+        `\x1b[32m[SUCESSO GESTOR] Novo alarme agendado via chat: "${textoCustomizado}" para daqui a ${minutos}m.\x1b[0m`,
       );
+
+      // Remove completamente a estrutura da tag do texto final para não vazar no Discord
+      respostaIA = respostaIA.replace(regexLembreteFlexivel, "").trim();
+      guardarLembretesNoDisco();
     }
   }
-
-  if (detetouLembrete) {
-    respostaIA = respostaIA.replace(lembreteRegexGlobal, "").trim();
-    guardarLembretesNoDisco();
-  }
+  // ================================================================
 
   let tempoDigitando = Math.floor(
     respostaIA.length * 12 * multiplicadorLentidao,
