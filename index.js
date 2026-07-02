@@ -13,10 +13,10 @@ const PORT = process.env.PORT || 3000;
 http
   .createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Himmel versão self-bot - Sistema de Lembretes Blindado!");
+    res.end("Himmel versão self-bot - Sistema de Lembretes Blindado com Logs!");
   })
   .listen(PORT, () => {
-    console.log(`[Web Server] Ouvindo na porta ${PORT}.`);
+    console.log(`\x1b[32m[Web Server] Ouvindo na porta ${PORT}.\x1b[0m`);
   });
 
 // ================================================================
@@ -67,7 +67,13 @@ if (fs.existsSync("./lembretes.json")) {
     } else if (Array.isArray(dados)) {
       bancoLembretes = dados;
     }
+    console.log(
+      `\x1b[34m[LOG GESTOR] Carregados com sucesso ${bancoLembretes.length} lembretes ativos e ${idsComandosExecutados.length} gatilhos travados do disco.\x1b[0m`,
+    );
   } catch (e) {
+    console.log(
+      `\x1b[31m[LOG ERRO DISCO] Falha ao ler arquivo de banco de dados (JSON inválido). Reiniciando limpo.\x1b[0m`,
+    );
     bancoLembretes = [];
     idsComandosExecutados = [];
   }
@@ -84,8 +90,13 @@ function guardarLembretesNoDisco() {
       JSON.stringify(dadosParaSalvar, null, 2),
       "utf-8",
     );
+    console.log(
+      `\x1b[36m[LOG DISCO] Banco de lembretes atualizado no disco (Total: ${bancoLembretes.length}).\x1b[0m`,
+    );
   } catch (err) {
-    console.error(err);
+    console.log(
+      `\x1b[31m[LOG ERRO DISCO] Falha crítica ao salvar dados de lembretes no arquivo: ${err.message}\x1b[0m`,
+    );
   }
 }
 
@@ -129,6 +140,9 @@ function precisaDeInternet(texto) {
 }
 
 function buscarNaWebNativo(query) {
+  console.log(
+    `\x1b[33m[LOG WEB] Detectada intenção de pesquisa. Buscando dados para: "${query}"...\x1b[0m`,
+  );
   return new Promise((resolve) => {
     const urlApi = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
     https
@@ -138,8 +152,12 @@ function buscarNaWebNativo(query) {
         res.on("end", () => {
           try {
             const json = JSON.parse(data);
-            if (json.AbstractText)
+            if (json.AbstractText) {
+              console.log(
+                `\x1b[32m[LOG WEB] Dados encontrados na API rápida do DuckDuckGo.\x1b[0m`,
+              );
               return resolve(`Resumo: ${json.AbstractText}`);
+            }
           } catch (e) {}
           const urlHtml = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
           https
@@ -157,8 +175,12 @@ function buscarNaWebNativo(query) {
                   if (
                     htmlData.includes("ddg-captcha") ||
                     htmlData.length < 1000
-                  )
+                  ) {
+                    console.log(
+                      `\x1b[31m[LOG QUEBRÁVEL ERRO] DuckDuckGo barrou a pesquisa por Captcha ou página vazia.\x1b[0m`,
+                    );
                     return resolve("");
+                  }
                   const regex =
                     /<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
                   let resultados = [],
@@ -173,27 +195,43 @@ function buscarNaWebNativo(query) {
                       .trim();
                     if (limpo.length > 15) resultados.push(limpo);
                   }
+                  console.log(
+                    `\x1b[32m[LOG WEB] Pesquisa HTML concluída. ${resultados.length} trechos capturados.\x1b[0m`,
+                  );
                   resolve(resultados.join(" | "));
                 });
               },
             )
-            .on("error", () => resolve(""));
+            .on("error", (err) => {
+              console.log(
+                `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha na raspagem HTML da Web: ${err.message}\x1b[0m`,
+              );
+              resolve("");
+            });
         });
       })
-      .on("error", () => resolve(""));
+      .on("error", (err) => {
+        console.log(
+          `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha na requisição API de busca: ${err.message}\x1b[0m`,
+        );
+        resolve("");
+      });
   });
 }
 
 async function gerarMensagemUnica(comandoInstrucao) {
   try {
-    const sistemaBase = `Escreva uma resposta curta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução: ${comandoInstrucao}`;
+    const sistemaBase = `Escreva uma resposta corta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução: ${comandoInstrucao}`;
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: sistemaBase }],
-      model: "llama-3.1-8b-instant", // Atualizado para economia de cota
+      model: "llama-3.1-8b-instant",
       temperature: 0.85,
     });
     return chatCompletion.choices[0]?.message?.content || "";
   } catch (e) {
+    console.log(
+      `\x1b[31m[LOG QUEBRÁVEL ERRO] Groq API falhou na geração de submensagem rápida: ${e.message}\x1b[0m`,
+    );
     return "";
   }
 }
@@ -212,7 +250,7 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 
       if (idsComandosExecutados.includes(msg.id)) {
         console.log(
-          `[HISTÓRICO LOG] Omitindo mensagem antiga ID: ${msg.id} de ${msg.author.username} para evitar eco do lembrete.`,
+          `\x1b[33m[LOG HISTÓRICO] Ignorando gatilho de lembrete antigo (ID: ${msg.id}) enviado por ${msg.author.username}.\x1b[0m`,
         );
         return;
       }
@@ -233,6 +271,9 @@ async function reconstruirContexto(channel, ignoreIds = []) {
     });
     return mensagens;
   } catch (e) {
+    console.log(
+      `\x1b[31m[LOG ERRO DISCORD] Falha ao puxar histórico de mensagens do canal: ${e.message}\x1b[0m`,
+    );
     return [];
   }
 }
@@ -287,14 +328,16 @@ Importante: Substitua 'minutos' por números inteiros. Em 'mensagem do alarme', 
     });
 
     const chatCompletion = await groq.chat.completions.create({
-      messages: mensagensParaEnviar,
-      model: "llama-3.1-8b-instant", // Modelo leve ativado aqui
+      messages: messagesParaEnviar,
+      model: "llama-3.1-8b-instant",
       temperature: 0.4,
     });
 
     return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
   } catch (err) {
-    console.error(err);
+    console.log(
+      `\x1b[31m[LOG QUEBRÁVEL ERRO] Groq API falhou ou estourou o limite (Rate Limit)! Erro exato: ${err.message}\x1b[0m`,
+    );
     return "foi mal, deu teto preto aqui na api kkk perai";
   }
 }
@@ -303,12 +346,15 @@ Importante: Substitua 'minutos' por números inteiros. Em 'mensagem do alarme', 
 // PRONTO E CRON TRALHAS
 // -----------------------------------------------------------
 client.once("ready", async () => {
-  console.log(`${client.user.username} conectado com sucesso no Discord!`);
+  console.log(
+    `\x1b[32m[LOG INICIALIZAÇÃO] ${client.user.username} conectado com sucesso no Discord!\x1b[0m`,
+  );
   client.user.setPresence({
     activities: [{ name: "conversando", type: 0 }],
     status: "online",
   });
 
+  // 🕒 Verificador periódico de lembretes ativos (Roda a cada 15 segundos)
   setInterval(async () => {
     const agora = Date.now();
     let mudou = false;
@@ -316,6 +362,9 @@ client.once("ready", async () => {
     for (let i = bancoLembretes.length - 1; i >= 0; i--) {
       const item = bancoLembretes[i];
       if (agora >= item.timestampDisparo) {
+        console.log(
+          `\x1b[35m[LOG LEMBRETE] Disparando cronômetro do lembrete agendado para o usuário ID: ${item.userId}...\x1b[0m`,
+        );
         try {
           const alvo = item.isDM
             ? await client.users.fetch(item.userId)
@@ -323,11 +372,21 @@ client.once("ready", async () => {
           if (alvo) {
             if (item.isDM) {
               await alvo.send(item.textoAlarme);
+              console.log(
+                `\x1b[32m[LOG LEMBRETE] Alarme enviado com sucesso via DM para ID: ${item.userId}.\x1b[0m`,
+              );
             } else {
               await alvo.send(`<@${item.userId}> ${item.textoAlarme}`);
+              console.log(
+                `\x1b[32m[LOG LEMBRETE] Alarme enviado com sucesso no canal ${item.channelId} marcando usuário.\x1b[0m`,
+              );
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.log(
+            `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha ao entregar mensagem do lembrete ativo: ${e.message}\x1b[0m`,
+          );
+        }
         bancoLembretes.splice(i, 1);
         mudou = true;
       }
@@ -335,6 +394,7 @@ client.once("ready", async () => {
     if (mudou) guardarLembretesNoDisco();
   }, 15000);
 
+  // Rotina de Puxar assunto no Privado
   async function rotinaMensagemAleatoria() {
     const tempoMinimo = 3600000;
     const tempoMaximo = 21600000;
@@ -346,6 +406,9 @@ client.once("ready", async () => {
         try {
           const idSorteado =
             IDS_ALVO_DM[Math.floor(Math.random() * IDS_ALVO_DM.length)];
+          console.log(
+            `\x1b[34m[LOG DM ROTINA] Iniciando rotina automática de puxada de assunto com ID: ${idSorteado}\x1b[0m`,
+          );
           const usuarioAlvo = await client.users.fetch(idSorteado);
           if (usuarioAlvo) {
             const dm = await usuarioAlvo.createDM();
@@ -361,18 +424,26 @@ client.once("ready", async () => {
             let textoFinal = msgIA.toLowerCase().replace(/,+$/, "").trim();
             if (textoFinal.length > 0) await dm.send(textoFinal);
           }
-        } catch (e) {}
+        } catch (e) {
+          console.log(
+            `\x1b[31m[LOG QUEBRÁVEL ERRO] Rotina de DM falhou: ${e.message}\x1b[0m`,
+          );
+        }
       }
       rotinaMensagemAleatoria();
     }, tempoEspera);
   }
   rotinaMensagemAleatoria();
 
+  // Verificador de Chat Morto (Após 6 horas sem nenhuma mensagem no canal)
   setInterval(
     async () => {
       const agora = Date.now();
       for (const [channelId, ultimoTempo] of channelActivity.entries()) {
         if (agora - ultimoTempo > 6 * 60 * 60 * 1000) {
+          console.log(
+            `\x1b[33m[LOG CHAT MORTO] Canal ${channelId} inativo por 6h. Puxando assunto...\x1b[0m`,
+          );
           try {
             const canal = await client.channels.fetch(channelId);
             if (canal && canal.isTextBased()) {
@@ -386,7 +457,11 @@ client.once("ready", async () => {
               await canal.send(textoFinal || "bando de morto kkk alguem vivo?");
               channelActivity.set(channelId, Date.now());
             }
-          } catch (e) {}
+          } catch (e) {
+            console.log(
+              `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha ao rodar gatilho de quebra de chat morto: ${e.message}\x1b[0m`,
+            );
+          }
         }
       }
     },
@@ -433,6 +508,9 @@ client.on("messageCreate", async (message) => {
         userMessageBuffers.delete(bufferKeyParaLimpar);
       }
 
+      console.log(
+        `\x1b[33m[LOG FLOOD] Bloqueando temporariamente o usuário ${message.author.username} por spam.\x1b[0m`,
+      );
       const avisoFlood = await gerarMensagemUnica(
         "O usuário está floodando mensagens rápido demais. Mande ele se acalmar ou esperar um pouco de forma bem curta, informal e zoeira.",
       );
@@ -593,6 +671,10 @@ async function processarMensagemFinal(buffer) {
   );
 
   const contexto = await reconstruirContexto(message.channel, buffer.msgIds);
+
+  console.log(
+    `\x1b[36m[LOG REQUISIÇÃO IA] Enviando prompt para Groq. Usuário: ${nomeUsuario}. Histórico carregado: ${contexto.length} msgs.\x1b[0m`,
+  );
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
     nomeUsuario,
@@ -617,6 +699,9 @@ async function processarMensagemFinal(buffer) {
         timestampDisparo: Date.now() + min * 60 * 1000,
       });
       criouLembrete = true;
+      console.log(
+        `\x1b[32m[LOG GESTOR] AGENDADO COM SUCESSO: Lembrete para ${nomeUsuario} daqui a ${min} minutos.\x1b[0m`,
+      );
     }
   }
 
@@ -671,9 +756,11 @@ async function processarMensagemFinal(buffer) {
           setTimeout(r, Math.floor(Math.random() * 500) + 300),
         );
       }
-      // CORREÇÃO: Enviando direto no canal sem dar reply/citação azul
       await message.channel.send(textoFinal);
     } catch (erroDeEnvio) {
+      console.log(
+        `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha ao enviar bloco de mensagem final no Discord: ${erroDeEnvio.message}\x1b[0m`,
+      );
       await message.channel.send(textoFinal).catch(() => {});
     }
   }
