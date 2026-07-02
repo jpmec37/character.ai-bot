@@ -101,7 +101,7 @@ function buscarNaWebNativo(query) {
 }
 
 // -----------------------------------------------------------
-// 🧠 MEMÓRIA RESILIENTE MÁXIMA (Até 100 mensagens)
+// 🧠 MEMÓRIA RESILIENTE E FILTRADA
 // -----------------------------------------------------------
 async function reconstruirContexto(channel, ignoreIds = []) {
     try {
@@ -109,6 +109,10 @@ async function reconstruirContexto(channel, ignoreIds = []) {
         const mensagens = [];
         fetched.reverse().forEach(msg => {
             if (msg.content.trim() === '' || ignoreIds.includes(msg.id)) return;
+            
+            // TRAVA DE AMNÉSIA: O bot ignora as próprias notificações de alarme para não tentar imitar
+            if (msg.author.id === client.user.id && msg.content.includes("tu pediu pra eu te lembrar disso aq:")) return;
+
             const nome = msg.member ? msg.member.displayName : msg.author.username;
             mensagens.push({
                 role: msg.author.id === client.user.id ? "assistant" : "user",
@@ -122,7 +126,7 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// COMUNICAÇÃO COM GROQ (INTELIGÊNCIA EMOCIONAL + LEMBRETES)
+// COMUNICAÇÃO COM GROQ (INTELIGÊNCIA EMOCIONAL + LEMBRETES ESTritos)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, contextoHistorico) {
     try {
@@ -131,13 +135,13 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
 
         const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
 1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases).
-2. ESPELHAMENTO: Leia o histórico. Absorva e repita naturalmente algumas gírias ou trejeitos que o usuário usar, mas sem forçar muito.
-3. INTELIGÊNCIA EMOCIONAL: Aja conforme é tratado. Se o usuário for amigável, seja parceiro. Se ele for chato, grosso, seco ou te encher o saco, seja frio, irônico, de respostas curtas ou demonstre preguiça de falar com ele.
-4. EMOJIS (QUASE NUNCA USE): Use emojis de forma MUITO rara (ex: em 1 a cada 10 mensagens). Você não liga pra emojis. Se for obrigado a usar, use no máximo UM, no final da frase. Opções: 💀, 😭, 🤓, 🤡, 🤨, 🐒, 👀, 🤙, 😂, 🔥, 😎.
+2. ESPELHAMENTO: Leia o histórico. Absorva e repita naturalmente gírias do usuário, mas sem forçar.
+3. INTELIGÊNCIA EMOCIONAL: Aja conforme é tratado. Amigável com quem é legal, frio/curto com quem é chato.
+4. EMOJIS (QUASE NUNCA USE): Use emojis de forma MUITO rara (ex: em 1 a cada 10 mensagens). Se usar, use no máximo UM no final.
 5. Variação de risada: nunca use sempre "kkk". Alterne para "ksksk", "ashuahsu", "mds kkkkk".
-6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome dele.
+6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
 7. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
-8. SISTEMA DE LEMBRETE: Se o usuário pedir para você lembrar ele de algo, adicione EXATAMENTE esta tag no final da sua resposta: [LEMBRETE: minutos | mensagem]. Exemplo: se ele disser "me lembra de beber água em 15 minutos", coloque [LEMBRETE: 15 | beber água]. IMPORTANTE: Se o usuário disser "daqui a pouco" ou "daqui a um tempo", ESCOLHA VOCÊ MESMO um número aleatório entre 5 e 15 minutos para colocar na tag. Converta horas para minutos se necessário.`;
+8. SISTEMA DE LEMBRETE (REGRA RESTRITA): APENAS gere um lembrete se o usuário pedir EXPLICITAMENTE com uma ordem (ex: "me lembra de X"). Se ele apenas conversar sobre o futuro, NÃO CRIE LEMBRETE! Quando FOR ordenado, coloque no final da sua resposta a tag: [LEMBRETE: minutos | mensagem]. Exemplo: [LEMBRETE: 15 | beber água]. IMPORTANTE: Você NUNCA deve falar em texto frases como "aí fulano, tu pediu pra eu te lembrar disso", o sistema do código fará isso. Apenas use a tag invisível e aja naturalmente.`;
 
         const sistemaPersonalidade = (config.personalidade || process.env.PERSONALIDADE || "Você é um humano jovem no discord.") + instrucoesDisfarce;
         
@@ -169,7 +173,7 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
 // EVENTOS DE START E ROTINAS
 // -----------------------------------------------------------
 client.once("ready", async () => {
-    console.log(`${client.user.username} (Self-Bot Humanizado V10) operante com Relógio, Calendário e Alarme Orgânico!`);
+    console.log(`${client.user.username} (Self-Bot Humanizado Definitivo) operante e sem bugs de memória!`);
     client.user.setPresence({ activities: [{ name: "conversando", type: 0 }], status: "online" });
 
     // DM Aleatória
@@ -186,7 +190,7 @@ client.once("ready", async () => {
                         await dm.sendTyping();
                         const contextoHistorico = await reconstruirContexto(dm, []);
                         const mensagemAleatoria = await perguntarAoGroqAvancado(idSorteado, usuarioAlvo.username, "Puxe assunto comigo no privado do nada.", contextoHistorico);
-                        let textoLimpo = mensagemAleatoria.replace(/\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/i, "").trim();
+                        let textoLimpo = mensagemAleatoria.replace(/\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/ig, "").trim();
                         await dm.send(textoLimpo.toLowerCase());
                     }
                 } catch (err) {}
@@ -222,7 +226,6 @@ client.once("ready", async () => {
 // -----------------------------------------------------------
 client.on("messageCreate", async message => {
     if (message.author.bot) return;
-
     if (/^[!\.\-\?\/]/.test(message.content)) return;
 
     channelActivity.set(message.channel.id, Date.now()); 
@@ -250,12 +253,11 @@ client.on("messageCreate", async message => {
     }
     userFloodControl.set(message.author.id, userFlood);
 
-    // AGRUPADOR DE MENSAGENS PICADAS
+    // AGRUPADOR
     const bufferKey = `${message.channel.id}-${message.author.id}`; 
     const botMention = `<@${client.user.id}>`;
     
     let partMentioned = message.content.includes(botMention) || message.mentions.has(client.user);
-
     let cleanText = message.content;
     if (cleanText.includes(botMention)) cleanText = cleanText.replace(botMention, "").trim();
 
@@ -267,9 +269,7 @@ client.on("messageCreate", async message => {
     if (cleanText.length > 0) buffer.textParts.push(cleanText);
     buffer.msgIds.push(message.id); 
     if (partMentioned) buffer.wasMentioned = true;
-    
     if (message.attachments.size > 0 || message.content.includes("http") || message.stickers.size > 0) buffer.hasMedia = true;
-    
     buffer.lastMessageObj = message;
 
     if (buffer.timer) clearTimeout(buffer.timer);
@@ -307,34 +307,24 @@ async function processarMensagemFinal(buffer) {
         }
     }
 
-    // SISTEMA DE VÁCUO
     if (msgText.length === 0 || msgText === "..." || msgText.toLowerCase() === "hm") {
-        if (Math.random() < 0.20) {
-            return message.react('👀').catch(()=>{}); 
-        }
-        try { 
-            return await message.reply({ content: "eai, manda", allowedMentions: { repliedUser: false } }); 
-        } catch (e) { 
-            return await message.channel.send("eai, manda").catch(()=>{}); 
-        }
+        if (Math.random() < 0.20) return message.react('👀').catch(()=>{}); 
+        try { return await message.reply({ content: "eai, manda", allowedMentions: { repliedUser: false } }); } 
+        catch (e) { return await message.channel.send("eai, manda").catch(()=>{}); }
     }
 
     const txtMin = msgText.toLowerCase();
     if (lastUserMessage.get(message.author.id) === txtMin) {
-        try { 
-            return await message.reply({ content: "vc acabou de perguntar a msma coisa doido kkkkk muda o disco", allowedMentions: { repliedUser: false } }); 
-        } catch (e) {}
+        try { return await message.reply({ content: "vc acabou de perguntar a msma coisa doido kkkkk muda o disco", allowedMentions: { repliedUser: false } }); } catch (e) {}
     }
     lastUserMessage.set(message.author.id, txtMin);
 
     if (txtMin.includes("kkk") || txtMin.includes("ksks")) message.react('💀').catch(()=>{});
     else if (txtMin.includes("?") && txtMin.length < 15) message.react('🤔').catch(()=>{});
 
-    // 1. TEMPO DE VISTO/LEITURA
     const horaBR = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo", hour: "numeric", hour12: false }), 10);
     let tempoLendo = Math.floor(Math.random() * 1000) + 500; 
     let multiplicadorLentidao = 1;
-    
     if (horaBR >= 2 && horaBR < 6) { tempoLendo += 2000; multiplicadorLentidao = 1.5; }
     else if (horaBR >= 6 && horaBR < 9) { tempoLendo += 1000; multiplicadorLentidao = 1.2; }
 
@@ -346,42 +336,47 @@ async function processarMensagemFinal(buffer) {
     const nomeUsuario = message.member ? message.member.displayName : message.author.username;
     const contextoHistorico = await reconstruirContexto(message.channel, buffer.msgIds); 
     
-    // 2. CHAMA A IA PARA PENSAR 
     let respostaIA = await perguntarAoGroqAvancado(message.author.id, nomeUsuario, msgText, contextoHistorico);
     
-    // INTERCEPTADOR DE LEMBRETES: Retira a tag da IA e cria o alarme real
-    const lembreteRegex = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/i;
-    const matchLembrete = respostaIA.match(lembreteRegex);
-    if (matchLembrete) {
-        const minutosLembrete = parseInt(matchLembrete[1], 10);
-        const textoLembrete = matchLembrete[2];
-        const tempoEmMs = minutosLembrete * 60 * 1000;
-        
-        // Apaga a tag secreta para não aparecer pro usuário
-        respostaIA = respostaIA.replace(lembreteRegex, "").trim();
+    // ============================================================
+    // NOVO INTERCEPTADOR DE LEMBRETES: Limpeza Global e Disparo Único
+    // ============================================================
+    const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/ig;
+    let matchLembrete;
+    let lembretesEncontrados = [];
+    
+    while ((matchLembrete = lembreteRegexGlobal.exec(respostaIA)) !== null) {
+        lembretesEncontrados.push({
+            minutos: parseInt(matchLembrete[1], 10),
+            texto: matchLembrete[2]
+        });
+    }
 
-        // Programa o alarme no sistema
+    if (lembretesEncontrados.length > 0) {
+        // Apaga TODAS as tags geradas de uma vez, pra não vazar nada no chat
+        respostaIA = respostaIA.replace(lembreteRegexGlobal, "").trim();
+
+        // Pega só o primeiro lembrete pra criar apenas 1 alarme
+        const lembretePrincipal = lembretesEncontrados[0];
+        const tempoEmMs = lembretePrincipal.minutos * 60 * 1000;
+        
         setTimeout(async () => {
             try {
                 const user = await client.users.fetch(message.author.id);
-                if (user) await user.send(`aí ${nomeUsuario}, tu pediu pra eu te lembrar disso aq: ${textoLembrete}`);
+                if (user) await user.send(`aí ${nomeUsuario}, tu pediu pra eu te lembrar disso aq: ${lembretePrincipal.texto}`);
             } catch (e) {
-                message.channel.send(`<@${message.author.id}> ow mano, tu pediu pra lembrar disso: ${textoLembrete}`).catch(()=>{});
+                message.channel.send(`<@${message.author.id}> ow mano, tu pediu pra lembrar disso: ${lembretePrincipal.texto}`).catch(()=>{});
             }
         }, tempoEmMs);
     }
     
-    // 3. CALCULA O TEMPO REAL DE DIGITAÇÃO 
     let tempoDigitando = Math.floor(respostaIA.length * 12 * multiplicadorLentidao);
     if (tempoDigitando > 8000) tempoDigitando = 8000; 
     if (tempoDigitando < 500) tempoDigitando = 500; 
 
-    console.log(`[Digitação] Texto: ${respostaIA.length} chars | Delay: ${(tempoDigitando/1000).toFixed(1)}s`);
-
     await new Promise(resolve => setTimeout(resolve, tempoDigitando));
     clearInterval(typingInterval); 
 
-    // 4. CORTE INTELIGENTE DE MENSAGEM 
     let frases = [respostaIA];
     if (Math.random() < 0.30 && respostaIA.length > 30) {
         let quebradas = respostaIA.split(/(?<=[,\n])\s+/).filter(f => f.trim().length > 0);
