@@ -13,7 +13,9 @@ const PORT = process.env.PORT || 3000;
 http
   .createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Himmel versão self-bot - Sistema de Lembretes Blindado!");
+    res.end(
+      "Himmel versão self-bot - Sistema de Lembretes Blindado com Trava de ID!",
+    );
   })
   .listen(PORT, () => {
     console.log(`[Web Server] Ouvindo na porta ${PORT}.`);
@@ -53,24 +55,30 @@ const client = new Client({
 });
 
 // -----------------------------------------------------------
-// 💾 GESTOR DE LEMBRETES PERSISTENTES (ANTI-QUEDA / ANTI-RESTART)
+// 💾 GESTOR DE LEMBRETES PERSISTENTES E BANCO DE IDS USADOS
 // -----------------------------------------------------------
 let bancoLembretes = [];
+let idsComandosExecutados = []; // Salva os IDs das mensagens de comando que já viraram lembrete
+
 if (fs.existsSync("./lembretes.json")) {
   try {
-    bancoLembretes = JSON.parse(fs.readFileSync("./lembretes.json", "utf-8"));
-    console.log(
-      `[Lembretes] Carregados ${bancoLembretes.length} lembretes do disco.`,
-    );
+    const dados = JSON.parse(fs.readFileSync("./lembretes.json", "utf-8"));
+    if (dados.lembretes) bancoLembretes = dados.lembretes;
+    if (dados.idsExecutados) idsComandosExecutados = dados.idsExecutados;
   } catch (e) {
     bancoLembretes = [];
+    idsComandosExecutados = [];
   }
 }
 
 function guardarLembretesNoDisco() {
+  const estrutura = {
+    lembretes: bancoLembretes,
+    idsExecutados: idsComandosExecutados,
+  };
   fs.writeFileSync(
     "./lembretes.json",
-    JSON.stringify(bancoLembretes, null, 2),
+    JSON.stringify(estrutura, null, 2),
     "utf-8",
   );
 }
@@ -184,7 +192,11 @@ async function gerarMensagemUnica(comandoInstrucao) {
   }
 }
 
-async function reconstruirContexto(channel, ignoreIds = []) {
+async function reconstruirContexto(
+  channel,
+  ignoreIds = [],
+  idsComandosPassados = [],
+) {
   try {
     const fetched = await channel.messages.fetch({ limit: 100 });
     const mensagens = [];
@@ -192,6 +204,10 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 
     fetched.reverse().forEach((msg) => {
       if (msg.content.trim() === "" || ignoreIds.includes(msg.id)) return;
+
+      // TRAVA DE HISTÓRICO: Se essa mensagem originou um lembrete antigo que já foi executado/criado,
+      // nós ignoramos ela INTEIRA. A IA nunca mais vai ver o fantasma desse pedido antigo!
+      if (idsComandosPassados.includes(msg.id)) return;
 
       let conteudo = msg.content;
       conteudo = conteudo.replace(lembreteRegexGlobal, "").trim();
@@ -231,16 +247,16 @@ async function perguntarAoGroqAvancado(
     };
     const dataHoraBrasil = new Date().toLocaleString("pt-BR", opcoesData);
 
-    // Simplificado drasticamente para a IA não se confundir e obedecer sempre!
     const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
-1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase ou linha com vírgula (,).
+1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase, linha ou mensagem com vírgula (,).
 2. ESPELHAMENTO: Leia o histórico e aja naturalmente com o usuário.
 3. INTELIGÊNCIA EMOCIONAL: Amigável com quem é legal, frio/curto com quem é chato.
-4. EMOJIS: Quase nunca use (máximo 1 a cada 10 mensagens).
-5. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
-6. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
-7. SISTEMA DE LEMBRETE: Se o usuário te pedir para lembrar de algo nesta conversa (ex: "me lembra de X em Y minutos"), você DEVE aceitar adicionando EXATAMENTE a seguinte tag no final da sua resposta: [LEMBRETE: minutos | frase_do_alarme]. 
-Substitua 'minutos' pelo número correto e 'frase_do_alarme' por uma frase curta e personalizada sua lembrando ele (ex: "ow ${nomeUsuario}, lembra de X aí kkk"). Não confirme o agendamento por extenso no corpo do texto, apenas aja normalmente (ex: "beleza", "anotado") e jogue a tag no fim do texto.`;
+4. EMOJIS (QUASE NUNCA USE): Use de forma MUITO rara (ex: em 1 a cada 10 mensagens). Máximo UM no final.
+5. Variação de risada: alterne para "ksksk", "ashuahsu", "mds kkkkk".
+6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
+7. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
+8. SISTEMA DE LEMBRETE: Se o usuário te pedir explicitamente para lembrar de algo nesta última mensagem enviada por ele (ex: "me lembra de X em Y minutos"), você DEVE aceitar adicionando EXATAMENTE a seguinte tag no final da sua resposta: [LEMBRETE: minutos | frase_do_alarme]. 
+Substitua 'minutos' pelo número correto e 'frase_do_alarme' por uma frase curta e personalizada sua lembrando ele (ex: "ow ${nomeUsuario}, passando pra te lembrar de X aí kkk"). Não confirme o agendamento por extenso no corpo do texto, apenas aja normalmente concordando e jogue a tag no fim do texto. Se a mensagem atual dele não for um pedido de lembrete, apenas converse normalmente sem gerar nenhuma tag.`;
 
     const sistemaPersonalidade =
       (config.personalidade ||
@@ -267,7 +283,7 @@ Substitua 'minutos' pelo número correto e 'frase_do_alarme' por uma frase curta
     const chatCompletion = await groq.chat.completions.create({
       messages: mensagensParaEnviar,
       model: "llama-3.3-70b-versatile",
-      temperature: 0.55, // Aumentado levemente de 0.35 para 0.55 para a IA ser mais flexível e seguir comandos melhor
+      temperature: 0.55,
     });
 
     return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
@@ -288,7 +304,7 @@ client.once("ready", async () => {
     status: "online",
   });
 
-  // 🕒 VERIFICADOR CRON DE LEMBRETES (Roda a cada 10 segundos)
+  // 🕒 VERIFICADOR CRON DE LEMBRETES (Corre a cada 15 segundos)
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -297,9 +313,6 @@ client.once("ready", async () => {
       const lembrete = bancoLembretes[i];
 
       if (agora >= lembrete.timestampDisparo) {
-        console.log(
-          `[Lembretes] Disparando alarme para o ID ${lembrete.userId}`,
-        );
         try {
           const destino = lembrete.isDM
             ? await client.users.fetch(lembrete.userId)
@@ -326,7 +339,7 @@ client.once("ready", async () => {
     }
 
     if (houveMudanca) guardarLembretesNoDisco();
-  }, 10000);
+  }, 15000);
 
   // DM Aleatória
   async function rotinaMensagemAleatoria() {
@@ -343,7 +356,11 @@ client.once("ready", async () => {
           if (usuarioAlvo) {
             const dm = await usuarioAlvo.createDM();
             await dm.sendTyping();
-            const contextoHistorico = await reconstruirContexto(dm, []);
+            const contextoHistorico = await reconstruirContexto(
+              dm,
+              [],
+              idsComandosExecutados,
+            );
             let mensagemAleatoria = await perguntarAoGroqAvancado(
               idSorteado,
               usuarioAlvo.username,
@@ -351,7 +368,7 @@ client.once("ready", async () => {
               contextoHistorico,
             );
 
-            mensagemAleatoria = mensagemAleatoria.replace(
+            mensagemAleatoria = messageAleatoria.replace(
               /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi,
               "",
             );
@@ -474,7 +491,10 @@ client.on("messageCreate", async (message) => {
 
   const buffer = userMessageBuffers.get(bufferKey);
   if (cleanText.length > 0) buffer.textParts.push(cleanText);
-  buffer.msgIds.push(message.id);
+
+  // Armazena todos os IDs das mensagens reais agrupadas no buffer atual
+  if (!buffer.msgIds.includes(message.id)) buffer.msgIds.push(message.id);
+
   if (partMentioned) buffer.wasMentioned = true;
   if (
     message.attachments.size > 0 ||
@@ -531,7 +551,7 @@ async function processarMensagemFinal(buffer) {
   if (soMidiaOuLink) {
     await new Promise((r) => setTimeout(r, 3000));
     const respMedia = await gerarMensagemUnica(
-      "Mande uma reação super curta (de 1 a 3 words) e informal sobre uma mídia, meme ou link que o usuário acabou de mandar.",
+      "Mande uma reação super curta (de 1 a 3 palavras) e informal sobre uma mídia, meme ou link que o usuário acabou de mandar.",
     );
     const textoFormato = respMedia.toLowerCase().replace(/,+$/, "").trim();
     try {
@@ -615,9 +635,11 @@ async function processarMensagemFinal(buffer) {
     9000,
   );
 
+  // Injeta a array de IDs passados na reconstrução para expurgar de vez os comandos antigos!
   const contextoHistorico = await reconstruirContexto(
     message.channel,
     buffer.msgIds,
+    idsComandosExecutados,
   );
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
@@ -626,20 +648,16 @@ async function processarMensagemFinal(buffer) {
     contextoHistorico,
   );
 
-  // ⚡ INTERCEPTADOR INTELIGENTE (FILTRO EM JAVASCRIPT NO LUGAR DA IA)
+  // ⚡ INTERCEPTADOR COM TRAVA DE ID ÚNICO
   const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi;
   let matchLembrete;
   let detetouLembrete = false;
-
-  // O código JS faz a segurança: Só salva se houver alguma intenção real na mensagem atual
-  const textoContemGatilho =
-    /(lembra|lembrete|lembrar|agenda|alarme|avisa|esquecer)/i.test(msgText);
 
   while ((matchLembrete = lembreteRegexGlobal.exec(respostaIA)) !== null) {
     const minutos = parseInt(matchLembrete[1], 10);
     const textoCustomizado = matchLembrete[2].trim();
 
-    if (!isNaN(minutos) && minutos > 0 && textoContemGatilho) {
+    if (!isNaN(minutos) && minutos > 0) {
       bancoLembretes.push({
         userId: message.author.id,
         channelId: message.channel.id,
@@ -648,15 +666,21 @@ async function processarMensagemFinal(buffer) {
         timestampDisparo: Date.now() + minutos * 60 * 1000,
       });
       detetouLembrete = true;
-      console.log(
-        `[Lembretes] Cadastrado com sucesso para daqui a ${minutos} minutos.`,
-      );
     }
   }
 
-  respostaIA = respostaIA.replace(lembreteRegexGlobal, "").trim();
-
+  // Se criou o lembrete, adicionamos os IDs dessas mensagens à lista de "Já executados"
   if (detetouLembrete) {
+    buffer.msgIds.forEach((id) => {
+      if (!idsComandosExecutados.includes(id)) idsComandosExecutados.push(id);
+    });
+
+    // Limita a lista de IDs salvos para não crescer indefinidamente no HD (mantém os últimos 300 comandos)
+    if (idsComandosExecutados.length > 300) {
+      idsComandosExecutados = idsComandosExecutados.slice(-300);
+    }
+
+    respostaIA = respostaIA.replace(lembreteRegexGlobal, "").trim();
     guardarLembretesNoDisco();
   }
 
