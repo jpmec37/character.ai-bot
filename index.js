@@ -12,7 +12,7 @@ const https = require("https");
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Himmel versão self-bot (Humano Disfarçado) operando!');
+    res.end('Himmel versão self-bot (Humano Disfarçado) - Operação Final Ativada!');
 }).listen(PORT, () => {
     console.log(`[Web Server] Ouvindo na porta ${PORT} para manter o bot acordado.`);
 });
@@ -50,7 +50,6 @@ const client = new Client({
     partials: [1, 3]
 });
 
-// TRAVA DE SEGURANÇA: Evita crash se a pasta "commands" não existir no servidor
 client.commands = new Collection();
 const commands = [];
 if (fs.existsSync('./commands')) {
@@ -102,23 +101,11 @@ function buscarNaWebNativo(query) {
 }
 
 // -----------------------------------------------------------
-// 🕒 RELÓGIO BIOLÓGICO: DELAY ORGÂNICO POR HORA DO DIA
-// -----------------------------------------------------------
-function calcularDelayPorHorario() {
-    const hora = new Date().getHours(); 
-    if (hora >= 2 && hora < 6) return Math.floor(Math.random() * 40000) + 35000;  
-    if (hora >= 6 && hora < 9) return Math.floor(Math.random() * 20000) + 20000;  
-    if (hora >= 9 && hora < 18) return Math.floor(Math.random() * 12000) + 10000; 
-    if (hora >= 18 && hora < 20) return Math.floor(Math.random() * 7000) + 5000;  
-    return Math.floor(Math.random() * 2500) + 1500;                               
-}
-
-// -----------------------------------------------------------
-// 🧠 MEMÓRIA RESILIENTE (Ignora mensagens recém-agrupadas)
+// 🧠 MEMÓRIA RESILIENTE (Agora lê 30 mensagens)
 // -----------------------------------------------------------
 async function reconstruirContexto(channel, ignoreIds = []) {
     try {
-        const fetched = await channel.messages.fetch({ limit: 15 });
+        const fetched = await channel.messages.fetch({ limit: 30 }); 
         const mensagens = [];
         fetched.reverse().forEach(msg => {
             if (msg.content.trim() === '' || ignoreIds.includes(msg.id)) return;
@@ -135,17 +122,20 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// COMUNICAÇÃO COM GROQ
+// COMUNICAÇÃO COM GROQ (INTELIGÊNCIA EMOCIONAL)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, contextoHistorico) {
     try {
-        const instrucoesDisfarce = `\n\nREGRAS DE SELF-BOT OBRIGATÓRIAS:
-1. Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal.
-2. Use gírias e abreviações (vc, tbm, oq, dps, mano, vdd, crlh).
-3. Variação de risada: nunca use sempre "kkk". Alterne para "ksksk", "ashuahsu", "mds kkkkk".
-4. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome dele.
-5. Use apenas emojis de shitpost/zoomer (💀, 😭, 🤓, 🤡, 🤨).
-6. Você é teimoso e relaxado. Não aja como assistente.`;
+        const dataHoraBrasil = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+        const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
+1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases).
+2. ESPELHAMENTO: Leia o histórico. Absorva e repita naturalmente algumas gírias ou trejeitos que o usuário usar, mas sem forçar muito.
+3. INTELIGÊNCIA EMOCIONAL: Aja conforme é tratado. Se o usuário for amigável, seja parceiro. Se ele for chato, grosso, seco ou te encher o saco, seja frio, irônico, de respostas curtas ou demonstre preguiça de falar com ele.
+4. EMOJIS (MÁXIMO 1 POR RESPOSTA): Não coloque no meio da frase. Use Apenas 1 no final e de vez em quando. Escolha um destes: 💀, 😭, 🤓, 🤡, 🤨, 🐒, 👀, 🤙, 😂, 🔥, 😎.
+5. Variação de risada: nunca use sempre "kkk". Alterne para "ksksk", "ashuahsu", "mds kkkkk".
+6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome dele.
+7. O horário atual no Brasil agora é ${dataHoraBrasil}.`;
 
         const sistemaPersonalidade = (config.personalidade || process.env.PERSONALIDADE || "Você é um humano jovem no discord.") + instrucoesDisfarce;
         
@@ -177,7 +167,7 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
 // EVENTOS DE START E ROTINAS
 // -----------------------------------------------------------
 client.once("ready", async () => {
-    console.log(`${client.user.username} (Self-Bot Humanizado) está online, blindado e sem bugs!`);
+    console.log(`${client.user.username} (Self-Bot Humanizado Final V7) operante e sem pings chatos!`);
     client.user.setPresence({ activities: [{ name: "conversando", type: 0 }], status: "online" });
 
     // DM Aleatória
@@ -234,7 +224,7 @@ client.on("messageCreate", async message => {
 
     channelActivity.set(message.channel.id, Date.now()); 
 
-    // 13. ANTI-FLOOD 
+    // ANTI-FLOOD 
     const now = Date.now();
     const userFlood = userFloodControl.get(message.author.id) || { count: 0, firstMsg: now, blockUntil: 0 };
     if (now < userFlood.blockUntil) return; 
@@ -250,14 +240,15 @@ client.on("messageCreate", async message => {
                 clearTimeout(userMessageBuffers.get(bufferKeyParaLimpar).timer);
                 userMessageBuffers.delete(bufferKeyParaLimpar);
             }
-            return message.reply("mano calma kk deixa eu respirar crlh, pera ae").catch(()=>{});
+            // Reposta de Saco Cheio SEM pingar a pessoa
+            return message.reply({ content: "mano calma kk deixa eu respirar crlh, pera ae", allowedMentions: { repliedUser: false } }).catch(()=>{});
         }
     } else {
         userFlood.count = 1; userFlood.firstMsg = now;
     }
     userFloodControl.set(message.author.id, userFlood);
 
-    // --- 16. O AGRUPADOR DE MENSAGENS PICADAS ---
+    // AGRUPADOR DE MENSAGENS PICADAS
     const bufferKey = `${message.channel.id}-${message.author.id}`; 
     const botMention = `<@${client.user.id}>`;
     
@@ -274,7 +265,10 @@ client.on("messageCreate", async message => {
     if (cleanText.length > 0) buffer.textParts.push(cleanText);
     buffer.msgIds.push(message.id); 
     if (partMentioned) buffer.wasMentioned = true;
-    if (message.attachments.size > 0 || message.content.includes("http")) buffer.hasMedia = true;
+    
+    // Identificação aprimorada de mídia (Imagens, links E Figurinhas)
+    if (message.attachments.size > 0 || message.content.includes("http") || message.stickers.size > 0) buffer.hasMedia = true;
+    
     buffer.lastMessageObj = message;
 
     if (buffer.timer) clearTimeout(buffer.timer);
@@ -305,28 +299,43 @@ async function processarMensagemFinal(buffer) {
     if (soMidiaOuLink) {
         await new Promise(r => setTimeout(r, 4500)); 
         const resps = ["carai kkkk", "q porra é essa kkk", "mds ashuash", "massa", "brabo kkk"];
-        try { return await message.reply(resps[Math.floor(Math.random() * resps.length)]); } 
-        catch (e) { return await message.channel.send(resps[Math.floor(Math.random() * resps.length)]).catch(()=>{}); }
+        try { 
+            return await message.reply({ content: resps[Math.floor(Math.random() * resps.length)], allowedMentions: { repliedUser: false } }); 
+        } catch (e) { 
+            return await message.channel.send(resps[Math.floor(Math.random() * resps.length)]).catch(()=>{}); 
+        }
     }
 
-    if (msgText.length === 0) {
-        try { return await message.reply("eai, de boa?"); } catch (e) { return await message.channel.send("eai, de boa?").catch(()=>{}); }
+    // SISTEMA DE VÁCUO (HUMANIDADE)
+    if (msgText.length === 0 || msgText === "..." || msgText.toLowerCase() === "hm") {
+        if (Math.random() < 0.20) {
+            return message.react('👀').catch(()=>{}); // Te ignora
+        }
+        try { 
+            return await message.reply({ content: "eai, manda", allowedMentions: { repliedUser: false } }); 
+        } catch (e) { 
+            return await message.channel.send("eai, manda").catch(()=>{}); 
+        }
     }
 
     const txtMin = msgText.toLowerCase();
     if (lastUserMessage.get(message.author.id) === txtMin) {
-        try { return await message.reply("vc acabou de perguntar a msma coisa doido kkkkk muda o disco"); } catch (e) {}
+        try { 
+            return await message.reply({ content: "vc acabou de perguntar a msma coisa doido kkkkk muda o disco", allowedMentions: { repliedUser: false } }); 
+        } catch (e) {}
     }
     lastUserMessage.set(message.author.id, txtMin);
 
     if (txtMin.includes("kkk") || txtMin.includes("ksks")) message.react('💀').catch(()=>{});
     else if (txtMin.includes("?") && txtMin.length < 15) message.react('🤔').catch(()=>{});
 
-    const delayTotal = calcularDelayPorHorario();
-    const tempoLendo = Math.floor(delayTotal * 0.4);
-    const tempoDigitando = Math.floor(delayTotal * 0.6);
-
-    console.log(`[Agrupado] Msg: "${msgText}" | Delay: ${(delayTotal/1000).toFixed(1)}s`);
+    // 1. TEMPO DE VISTO/LEITURA (MAIS RÁPIDO: 0.5s a 1.5s)
+    const horaBR = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo", hour: "numeric", hour12: false }), 10);
+    let tempoLendo = Math.floor(Math.random() * 1000) + 500; 
+    let multiplicadorLentidao = 1;
+    
+    if (horaBR >= 2 && horaBR < 6) { tempoLendo += 2000; multiplicadorLentidao = 1.5; }
+    else if (horaBR >= 6 && horaBR < 9) { tempoLendo += 1000; multiplicadorLentidao = 1.2; }
 
     await new Promise(resolve => setTimeout(resolve, tempoLendo));
     
@@ -336,21 +345,35 @@ async function processarMensagemFinal(buffer) {
     const nomeUsuario = message.member ? message.member.displayName : message.author.username;
     const contextoHistorico = await reconstruirContexto(message.channel, buffer.msgIds); 
     
-    const respostaIAPromise = perguntarAoGroqAvancado(message.author.id, nomeUsuario, msgText, contextoHistorico);
+    // 2. CHAMA A IA PARA PENSAR 
+    const respostaIA = await perguntarAoGroqAvancado(message.author.id, nomeUsuario, msgText, contextoHistorico);
     
+    // 3. CALCULA O TEMPO REAL DE DIGITAÇÃO 
+    let tempoDigitando = Math.floor(respostaIA.length * 12 * multiplicadorLentidao);
+    if (tempoDigitando > 8000) tempoDigitando = 8000; 
+    if (tempoDigitando < 500) tempoDigitando = 500; 
+
+    console.log(`[Digitação] Texto: ${respostaIA.length} chars | Delay: ${(tempoDigitando/1000).toFixed(1)}s (12ms/char)`);
+
     await new Promise(resolve => setTimeout(resolve, tempoDigitando));
     clearInterval(typingInterval); 
 
-    const respostaIA = await respostaIAPromise;
-
-    let frases = respostaIA.split(/(?<=[.!?\n])\s+/).filter(f => f.trim().length > 0);
-    
-    if (frases.length > 4) {
-        frases = [
-            frases.slice(0, 2).join(" "),
-            frases.slice(2, 4).join(" "),
-            frases.slice(4).join(" ")
-        ].filter(f => f.trim().length > 0);
+    // 4. CORTE INTELIGENTE DE MENSAGEM (Vírgulas ou Quebra de Linha)
+    let frases = [respostaIA];
+    if (Math.random() < 0.30 && respostaIA.length > 30) {
+        // Quebra onde houver vírgula ou Enter em vez de procurar pontos finais
+        let quebradas = respostaIA.split(/(?<=[,\n])\s+/).filter(f => f.trim().length > 0);
+        if (quebradas.length > 1) {
+            if (quebradas.length > 4) {
+                frases = [
+                    quebradas.slice(0, 2).join(" "),
+                    quebradas.slice(2, 4).join(" "),
+                    quebradas.slice(4).join(" ")
+                ].filter(f => f.trim().length > 0);
+            } else {
+                frases = quebradas;
+            }
+        }
     }
 
     for (let i = 0; i < frases.length; i++) {
@@ -358,11 +381,12 @@ async function processarMensagemFinal(buffer) {
 
         try {
             if (i === 0 && isMentioned) {
-                await message.reply(textoFinal); 
+                // FIM DO APITO CHATO: Responde marcando a mensagem original, mas sem "pingar" o usuário
+                await message.reply({ content: textoFinal, allowedMentions: { repliedUser: false } }); 
             } else {
                 if (i !== 0) {
                     message.channel.sendTyping(); 
-                    await new Promise(r => setTimeout(r, Math.floor(Math.random() * 2000) + 1500));
+                    await new Promise(r => setTimeout(r, Math.floor(Math.random() * 500) + 300));
                 }
                 await message.channel.send(textoFinal);
             }
