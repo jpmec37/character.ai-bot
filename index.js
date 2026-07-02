@@ -12,7 +12,7 @@ const https = require("https");
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Himmel versão self-bot (Humano Disfarçado) - Operação Final Ativada!');
+    res.end('Himmel versão self-bot - Sistema de Lembretes Blindado!');
 }).listen(PORT, () => {
     console.log(`[Web Server] Ouvindo na porta ${PORT} para manter o bot acordado.`);
 });
@@ -101,7 +101,7 @@ function buscarNaWebNativo(query) {
 }
 
 // -----------------------------------------------------------
-// 🧠 MEMÓRIA RESILIENTE E FILTRADA
+// 🧠 MEMÓRIA SANITIZADA (ESQUECE ALERTAS AUTOMÁTICOS)
 // -----------------------------------------------------------
 async function reconstruirContexto(channel, ignoreIds = []) {
     try {
@@ -110,13 +110,19 @@ async function reconstruirContexto(channel, ignoreIds = []) {
         fetched.reverse().forEach(msg => {
             if (msg.content.trim() === '' || ignoreIds.includes(msg.id)) return;
             
-            // TRAVA DE AMNÉSIA: O bot ignora as próprias notificações de alarme para não tentar imitar
-            if (msg.author.id === client.user.id && msg.content.includes("tu pediu pra eu te lembrar disso aq:")) return;
+            let conteudo = msg.content;
+            
+            // SE FOR MENSAGEM DO BOT: Deleta apenas as linhas de disparo de lembrete para não viciar a IA
+            if (msg.author.id === client.user.id) {
+                conteudo = conteudo.replace(/aí\s+[^,]+,\s+tu pediu pra eu te lembrar disso aq:.*/ig, "").trim();
+                conteudo = conteudo.replace(/<@\d+>\s+ow mano,\s+tu pediu pra lembrar disso:.*/ig, "").trim();
+                if (conteudo === '') return; // Se a mensagem era só o alarme, ignora o bloco inteiro
+            }
 
             const nome = msg.member ? msg.member.displayName : msg.author.username;
             mensagens.push({
                 role: msg.author.id === client.user.id ? "assistant" : "user",
-                content: msg.author.id === client.user.id ? msg.content : `[${nome}]: ${msg.content}`
+                content: msg.author.id === client.user.id ? conteudo : `[${nome}]: ${msg.content}`
             });
         });
         return mensagens;
@@ -126,7 +132,7 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// COMUNICAÇÃO COM GROQ (INTELIGÊNCIA EMOCIONAL + LEMBRETES ESTritos)
+// COMUNICAÇÃO COM GROQ (PROMPT HIGIENIZADO)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, contextoHistorico) {
     try {
@@ -134,14 +140,14 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
         const dataHoraBrasil = new Date().toLocaleString('pt-BR', opcoesData);
 
         const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
-1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases).
+1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase, linha ou mensagem com vírgula (,). Apenas deixe sem pontuação nenhuma no final.
 2. ESPELHAMENTO: Leia o histórico. Absorva e repita naturalmente gírias do usuário, mas sem forçar.
 3. INTELIGÊNCIA EMOCIONAL: Aja conforme é tratado. Amigável com quem é legal, frio/curto com quem é chato.
 4. EMOJIS (QUASE NUNCA USE): Use emojis de forma MUITO rara (ex: em 1 a cada 10 mensagens). Se usar, use no máximo UM no final.
 5. Variação de risada: nunca use sempre "kkk". Alterne para "ksksk", "ashuahsu", "mds kkkkk".
 6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
 7. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
-8. SISTEMA DE LEMBRETE (REGRA RESTRITA): APENAS gere um lembrete se o usuário pedir EXPLICITAMENTE com uma ordem (ex: "me lembra de X"). Se ele apenas conversar sobre o futuro, NÃO CRIE LEMBRETE! Quando FOR ordenado, coloque no final da sua resposta a tag: [LEMBRETE: minutos | mensagem]. Exemplo: [LEMBRETE: 15 | beber água]. IMPORTANTE: Você NUNCA deve falar em texto frases como "aí fulano, tu pediu pra eu te lembrar disso", o sistema do código fará isso. Apenas use a tag invisível e aja naturalmente.`;
+8. SISTEMA DE LEMBRETE (REGRA RESTRITA): APENAS gere um lembrete se o usuário pedir EXPLICITAMENTE com uma ordem (ex: "me lembra de X"). Se ele apenas conversar sobre o futuro, NÃO CRIE LEMBRETE! Quando FOR ordenado, coloque no final da sua resposta a tag: [LEMBRETE: minutos | mensagem]. Exemplo: [LEMBRETE: 15 | beber água]. IMPORTANTE: Você deve APENAS gerar a tag entre colchetes. Não escreva nenhuma frase notificando ou digitando o envio do lembrete por extenso no corpo da mensagem, pois o sistema interno do código cuidará do disparo no momento exato.`;
 
         const sistemaPersonalidade = (config.personalidade || process.env.PERSONALIDADE || "Você é um humano jovem no discord.") + instrucoesDisfarce;
         
@@ -173,7 +179,7 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
 // EVENTOS DE START E ROTINAS
 // -----------------------------------------------------------
 client.once("ready", async () => {
-    console.log(`${client.user.username} (Self-Bot Humanizado Definitivo) operante e sem bugs de memória!`);
+    console.log(`${client.user.username} - Lembretes Blindados e Anti-Vírgulas Ativados!`);
     client.user.setPresence({ activities: [{ name: "conversando", type: 0 }], status: "online" });
 
     // DM Aleatória
@@ -189,9 +195,14 @@ client.once("ready", async () => {
                         const dm = await usuarioAlvo.createDM();
                         await dm.sendTyping();
                         const contextoHistorico = await reconstruirContexto(dm, []);
-                        const mensagemAleatoria = await perguntarAoGroqAvancado(idSorteado, usuarioAlvo.username, "Puxe assunto comigo no privado do nada.", contextoHistorico);
-                        let textoLimpo = mensagemAleatoria.replace(/\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/ig, "").trim();
-                        await dm.send(textoLimpo.toLowerCase());
+                        let mensagemAleatoria = await perguntarAoGroqAvancado(idSorteado, usuarioAlvo.username, "Puxe assunto comigo no privado do nada.", contextoHistorico);
+                        
+                        // Proteções de saída na DM
+                        mensagemAleatoria = mensagemAleatoria.replace(/\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/ig, "");
+                        mensagemAleatoria = mensagemAleatoria.replace(/aí\s+[^,]+,\s+tu pediu pra eu te lembrar disso aq:.*/ig, "");
+                        let textoLimpo = mensagemAleatoria.toLowerCase().replace(/,+$/, "").trim();
+                        
+                        if(textoLimpo.length > 0) await dm.send(textoLimpo);
                     }
                 } catch (err) {}
             }
@@ -338,9 +349,10 @@ async function processarMensagemFinal(buffer) {
     
     let respostaIA = await perguntarAoGroqAvancado(message.author.id, nomeUsuario, msgText, contextoHistorico);
     
-    // ============================================================
-    // NOVO INTERCEPTADOR DE LEMBRETES: Limpeza Global e Disparo Único
-    // ============================================================
+    // ESCUDO DE SAÍDA: Apaga qualquer linha de texto imitando lembrete gerada acidentalmente pela IA
+    respostaIA = respostaIA.replace(/aí\s+[^,]+,\s+tu pediu pra eu te lembrar disso aq:.*/ig, "").trim();
+
+    // INTERCEPTADOR DE LEMBRETES (TAGS)
     const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/ig;
     let matchLembrete;
     let lembretesEncontrados = [];
@@ -353,10 +365,7 @@ async function processarMensagemFinal(buffer) {
     }
 
     if (lembretesEncontrados.length > 0) {
-        // Apaga TODAS as tags geradas de uma vez, pra não vazar nada no chat
         respostaIA = respostaIA.replace(lembreteRegexGlobal, "").trim();
-
-        // Pega só o primeiro lembrete pra criar apenas 1 alarme
         const lembretePrincipal = lembretesEncontrados[0];
         const tempoEmMs = lembretePrincipal.minutos * 60 * 1000;
         
@@ -394,7 +403,10 @@ async function processarMensagemFinal(buffer) {
     }
 
     for (let i = 0; i < frases.length; i++) {
-        let textoFinal = frases[i].toLowerCase(); 
+        let textoFinal = frases[i].toLowerCase().trim(); 
+        textoFinal = textoFinal.replace(/,+$/, ""); // Limpeza final de vírgulas penduradas
+
+        if(textoFinal.length === 0) continue; 
 
         try {
             if (i === 0 && isMentioned) {
