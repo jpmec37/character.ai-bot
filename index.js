@@ -53,55 +53,42 @@ const client = new Client({
 });
 
 // -----------------------------------------------------------
-// 💾 GESTOR DE LEMBRETES PERSISTENTES COM TRAVA DE REPETIÇÃO
+// 💾 GESTOR DE LEMBRETES PERSISTENTES
 // -----------------------------------------------------------
 let bancoLembretes = [];
-let idsComandosExecutados = [];
-
 if (fs.existsSync("./lembretes.json")) {
   try {
-    const dados = JSON.parse(fs.readFileSync("./lembretes.json", "utf-8"));
-    if (dados && dados.lembretes) {
-      bancoLembretes = dados.lembretes;
-      idsComandosExecutados = dados.idsExecutados || [];
-    } else if (Array.isArray(dados)) {
-      bancoLembretes = dados;
-    }
+    bancoLembretes = JSON.parse(fs.readFileSync("./lembretes.json", "utf-8"));
     console.log(
-      `\x1b[34m[LOG GESTOR] Carregados com sucesso ${bancoLembretes.length} lembretes ativos e ${idsComandosExecutados.length} gatilhos travados do disco.\x1b[0m`,
+      `\x1b[34m[LOG GESTOR] Carregados ${bancoLembretes.length} lembretes ativos do disco.\x1b[0m`,
     );
   } catch (e) {
     console.log(
-      `\x1b[31m[LOG ERRO DISCO] Falha ao ler arquivo de banco de dados (JSON inválido). Reiniciando limpo.\x1b[0m`,
+      `\x1b[31m[LOG ERRO DISCO] Arquivo de lembretes corrompido, iniciando limpo.\x1b[0m`,
     );
     bancoLembretes = [];
-    idsComandosExecutados = [];
   }
 }
 
 function guardarLembretesNoDisco() {
   try {
-    const dadosParaSalvar = {
-      lembretes: bancoLembretes,
-      idsExecutados: idsComandosExecutados,
-    };
     fs.writeFileSync(
       "./lembretes.json",
-      JSON.stringify(dadosParaSalvar, null, 2),
+      JSON.stringify(bancoLembretes, null, 2),
       "utf-8",
     );
     console.log(
-      `\x1b[36m[LOG DISCO] Banco de lembretes atualizado no disco (Total: ${bancoLembretes.length}).\x1b[0m`,
+      `\x1b[36m[LOG DISCO] Banco de lembretes atualizado com sucesso.\x1b[0m`,
     );
   } catch (err) {
     console.log(
-      `\x1b[31m[LOG ERRO DISCO] Falha crítica ao salvar dados de lembretes no arquivo: ${err.message}\x1b[0m`,
+      `\x1b[31m[LOG ERRO DISCO] Falha ao salvar arquivo JSON: ${err.message}\x1b[0m`,
     );
   }
 }
 
 // -----------------------------------------------------------
-// BUSCA WEB E AUXILIARES
+// COMANDOS SLASH / SISTEMAS EXTERNOS
 // -----------------------------------------------------------
 client.commands = new Collection();
 const commands = [];
@@ -141,7 +128,7 @@ function precisaDeInternet(texto) {
 
 function buscarNaWebNativo(query) {
   console.log(
-    `\x1b[33m[LOG WEB] Detectada intenção de pesquisa. Buscando dados para: "${query}"...\x1b[0m`,
+    `\x1b[33m[LOG WEB] Buscando dados externos para: "${query}"...\x1b[0m`,
   );
   return new Promise((resolve) => {
     const urlApi = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
@@ -152,12 +139,8 @@ function buscarNaWebNativo(query) {
         res.on("end", () => {
           try {
             const json = JSON.parse(data);
-            if (json.AbstractText) {
-              console.log(
-                `\x1b[32m[LOG WEB] Dados encontrados na API rápida do DuckDuckGo.\x1b[0m`,
-              );
+            if (json.AbstractText)
               return resolve(`Resumo: ${json.AbstractText}`);
-            }
           } catch (e) {}
           const urlHtml = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
           https
@@ -177,7 +160,7 @@ function buscarNaWebNativo(query) {
                     htmlData.length < 1000
                   ) {
                     console.log(
-                      `\x1b[31m[LOG QUEBRÁVEL ERRO] DuckDuckGo barrou a pesquisa por Captcha ou página vazia.\x1b[0m`,
+                      `\x1b[31m[LOG WEB ERRO] DuckDuckGo bloqueou a raspagem (Captcha).\x1b[0m`,
                     );
                     return resolve("");
                   }
@@ -195,33 +178,20 @@ function buscarNaWebNativo(query) {
                       .trim();
                     if (limpo.length > 15) resultados.push(limpo);
                   }
-                  console.log(
-                    `\x1b[32m[LOG WEB] Pesquisa HTML concluída. ${resultados.length} trechos capturados.\x1b[0m`,
-                  );
                   resolve(resultados.join(" | "));
                 });
               },
             )
-            .on("error", (err) => {
-              console.log(
-                `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha na raspagem HTML da Web: ${err.message}\x1b[0m`,
-              );
-              resolve("");
-            });
+            .on("error", () => resolve(""));
         });
       })
-      .on("error", (err) => {
-        console.log(
-          `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha na requisição API de busca: ${err.message}\x1b[0m`,
-        );
-        resolve("");
-      });
+      .on("error", () => resolve(""));
   });
 }
 
 async function gerarMensagemUnica(comandoInstrucao) {
   try {
-    const sistemaBase = `Escreva uma resposta corta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução: ${comandoInstrucao}`;
+    const sistemaBase = `Escreva uma resposta curta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: sistemaBase }],
       model: "llama-3.1-8b-instant",
@@ -230,30 +200,21 @@ async function gerarMensagemUnica(comandoInstrucao) {
     return chatCompletion.choices[0]?.message?.content || "";
   } catch (e) {
     console.log(
-      `\x1b[31m[LOG QUEBRÁVEL ERRO] Groq API falhou na geração de submensagem rápida: ${e.message}\x1b[0m`,
+      `\x1b[31m[LOG ERRO API] Falha na chamada secundária da Groq: ${e.message}\x1b[0m`,
     );
     return "";
   }
 }
 
-// -----------------------------------------------------------
-// RECONSTRUTOR DE CONTEXTO COM EXPURGO DE COMANDOS ANTIGOS
-// -----------------------------------------------------------
 async function reconstruirContexto(channel, ignoreIds = []) {
   try {
-    const fetched = await channel.messages.fetch({ limit: 40 });
+    // Reduzido de 100 para 30 para evitar quebra de limite por tamanho de contexto
+    const fetched = await channel.messages.fetch({ limit: 30 });
     const mensagens = [];
     const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi;
 
     fetched.reverse().forEach((msg) => {
       if (msg.content.trim() === "" || ignoreIds.includes(msg.id)) return;
-
-      if (idsComandosExecutados.includes(msg.id)) {
-        console.log(
-          `\x1b[33m[LOG HISTÓRICO] Ignorando gatilho de lembrete antigo (ID: ${msg.id}) enviado por ${msg.author.username}.\x1b[0m`,
-        );
-        return;
-      }
 
       let conteudo = msg.content;
       conteudo = conteudo.replace(lembreteRegexGlobal, "").trim();
@@ -271,9 +232,6 @@ async function reconstruirContexto(channel, ignoreIds = []) {
     });
     return mensagens;
   } catch (e) {
-    console.log(
-      `\x1b[31m[LOG ERRO DISCORD] Falha ao puxar histórico de mensagens do canal: ${e.message}\x1b[0m`,
-    );
     return [];
   }
 }
@@ -297,14 +255,15 @@ async function perguntarAoGroqAvancado(
     const dataHoraBrasil = new Date().toLocaleString("pt-BR", opcoesData);
 
     const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
-1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase ou linha com vírgula (,).
-2. ESPELHAMENTO: Comporte-se como um jovem nativo do Discord baseado no histórico.
-3. INTELIGÊNCIA EMOCIONAL: Seja legal com quem for legal com você e seja frio ou curto com quem for chato/rude.
-4. EMOJIS (QUASE NUNCA USE): Só use emojis se for algo MUITO específico ou raro (máximo 1 emoji no fim da mensagem, ex: em 1 a cada 10 mensagens). Alterne risadas como "kkk", "ksksk", "ashuahsu", "mds kkkkk".
-5. MENÇÃO: Nunca use a tag azul <@id> para chamar as pessoas no texto, refira-se a elas apenas pelo nome direto.
-6. DATA ATUAL NO BRASIL: ${dataHoraBrasil}.
-7. SISTEMA DE LEMBRETE: Se o usuário pedir para você lembrar de algo AGORA nesta última mensagem dele (ex: "me lembra de X em Y minutos"), concorde casualmente no texto (ex: "fechou", "deixa comigo") e obrigatoriamente coloque ESTA tag exata colada no fim do texto: [LEMBRETE: minutos | mensagem do alarme].
-Importante: Substitua 'minutos' por números inteiros. Em 'mensagem do alarme', escreva uma frase 100% ÚNICA e personalizada para avisar o usuário (ex: 'ow ${nomeUsuario}, tu pediu pra te lembrar de X', 'lembrete pra tu nao esquecer de X kkk'). Esta frase DEVE conter obrigatoriamente a palavra 'lembrar' ou 'lembrete'. Se a mensagem dele atual não tiver pedidos de alarme novos, responda apenas conversando sem adicionar nenhuma tag de lembrete.`;
+1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase, linha ou mensagem com vírgula (,).
+2. ESPELHAMENTO: Leia o histórico e aja naturalmente com o usuário.
+3. INTELIGÊNCIA EMOCIONAL: Amigável com quem é legal, frio/curto com quem é chato.
+4. EMOJIS (QUASE NUNCA USE): Use de forma MUITO rara. Máximo UM no final.
+5. Variação de risada: alterne para "ksksk", "ashuahsu", "mds kkkkk".
+6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
+7. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
+8. SISTEMA DE LEMBRETE (REGRA RESTRITA): APENAS gere um lembrete se o usuário pedir EXPLICITAMENTE na MENSAGEM ATUAL (ex: "me lembra de X"). Ignore coisas do passado. Quando ordenado agora, coloque no final da sua resposta a tag exata: [LEMBRETE: minutos | mensagem_customizada].
+REGRA DE OURO DO LEMBRETE: Em 'mensagem_customizada', crie uma frase de alarme 100% ÚNICA e personalizada para o usuário. Essa frase DEVE conter obrigatoriamente a palavra 'lembrar' ou 'lembrete'. Não confirme o lembrete por extenso no seu texto principal; responda apenas concordando normalmente (ex: "beleza", "deixa comigo") e coloque a tag no final.`;
 
     const sistemaPersonalidade =
       (config.personalidade || "Você é um humano jovem no discord.") +
@@ -314,7 +273,7 @@ Importante: Substitua 'minutos' por números inteiros. Em 'mensagem do alarme', 
     if (precisaDeInternet(textoAtual)) {
       const dadosBusca = await buscarNaWebNativo(textoAtual);
       if (dadosBusca && dadosBusca.length > 5) {
-        contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>`;
+        contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder, mas minta que sabia de cabeça.`;
       }
     }
 
@@ -327,141 +286,135 @@ Importante: Substitua 'minutos' por números inteiros. Em 'mensagem do alarme', 
       content: `[${nomeUsuario}]: ${textoAtual}`,
     });
 
+    console.log(
+      `\x1b[35m[LOG API] Fazendo chamada principal para a API da Groq...\x1b[0m`,
+    );
     const chatCompletion = await groq.chat.completions.create({
-      messages: messagesParaEnviar,
-      model: "llama-3.1-8b-instant",
-      temperature: 0.4,
+      messages: mensagensParaEnviar,
+      model: "llama-3.1-8b-instant", // Mudado para o modelo estável e imune a estouros de cota rápida
+      temperature: 0.35,
     });
 
     return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
   } catch (err) {
     console.log(
-      `\x1b[31m[LOG QUEBRÁVEL ERRO] Groq API falhou ou estourou o limite (Rate Limit)! Erro exato: ${err.message}\x1b[0m`,
+      `\x1b[31m[LOG CRÍTICO ERRO] Groq rejeitou a requisição: ${err.message}\x1b[0m`,
     );
     return "foi mal, deu teto preto aqui na api kkk perai";
   }
 }
 
 // -----------------------------------------------------------
-// PRONTO E CRON TRALHAS
+// EVENTOS DE START E ROTINAS
 // -----------------------------------------------------------
 client.once("ready", async () => {
-  console.log(
-    `\x1b[32m[LOG INICIALIZAÇÃO] ${client.user.username} conectado com sucesso no Discord!\x1b[0m`,
-  );
+  console.log(`\x1b[32m[LOG] ${client.user.username} logado e pronto!\x1b[0m`);
   client.user.setPresence({
     activities: [{ name: "conversando", type: 0 }],
     status: "online",
   });
 
-  // 🕒 Verificador periódico de lembretes ativos (Roda a cada 15 segundos)
+  // Verificador Cron de Lembretes
   setInterval(async () => {
     const agora = Date.now();
-    let mudou = false;
+    let houveMudanca = false;
 
     for (let i = bancoLembretes.length - 1; i >= 0; i--) {
-      const item = bancoLembretes[i];
-      if (agora >= item.timestampDisparo) {
+      const lembrete = bancoLembretes[i];
+
+      if (agora >= lembrete.timestampDisparo) {
         console.log(
-          `\x1b[35m[LOG LEMBRETE] Disparando cronômetro do lembrete agendado para o usuário ID: ${item.userId}...\x1b[0m`,
+          `\x1b[34m[LOG LEMBRETE] Disparando alarme agendado do usuário ${lembrete.userId}\x1b[0m`,
         );
         try {
-          const alvo = item.isDM
-            ? await client.users.fetch(item.userId)
-            : await client.channels.fetch(item.channelId);
-          if (alvo) {
-            if (item.isDM) {
-              await alvo.send(item.textoAlarme);
-              console.log(
-                `\x1b[32m[LOG LEMBRETE] Alarme enviado com sucesso via DM para ID: ${item.userId}.\x1b[0m`,
-              );
+          const destino = lembrete.isDM
+            ? await client.users.fetch(lembrete.userId)
+            : await client.channels.fetch(lembrete.channelId);
+
+          if (destino) {
+            if (lembrete.isDM) {
+              await destino.send(lembrete.textoAlarme);
             } else {
-              await alvo.send(`<@${item.userId}> ${item.textoAlarme}`);
-              console.log(
-                `\x1b[32m[LOG LEMBRETE] Alarme enviado com sucesso no canal ${item.channelId} marcando usuário.\x1b[0m`,
+              await destino.send(
+                `<@${lembrete.userId}> ${lembrete.textoAlarme}`,
               );
             }
           }
-        } catch (e) {
+        } catch (err) {
           console.log(
-            `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha ao entregar mensagem do lembrete ativo: ${e.message}\x1b[0m`,
+            `\x1b[31m[LOG ERRO DISCORD] Erro ao entregar lembrete: ${err.message}\x1b[0m`,
           );
         }
         bancoLembretes.splice(i, 1);
-        mudou = true;
+        houveMudanca = true;
       }
     }
-    if (mudou) guardarLembretesNoDisco();
+    if (houveMudanca) guardarLembretesNoDisco();
   }, 15000);
 
-  // Rotina de Puxar assunto no Privado
+  // DM Aleatória
   async function rotinaMensagemAleatoria() {
     const tempoMinimo = 3600000;
     const tempoMaximo = 21600000;
     const tempoEspera =
       Math.floor(Math.random() * (tempoMaximo - tempoMinimo + 1)) + tempoMinimo;
-
     setTimeout(async () => {
       if (IDS_ALVO_DM.length > 0) {
         try {
           const idSorteado =
             IDS_ALVO_DM[Math.floor(Math.random() * IDS_ALVO_DM.length)];
-          console.log(
-            `\x1b[34m[LOG DM ROTINA] Iniciando rotina automática de puxada de assunto com ID: ${idSorteado}\x1b[0m`,
-          );
           const usuarioAlvo = await client.users.fetch(idSorteado);
           if (usuarioAlvo) {
             const dm = await usuarioAlvo.createDM();
             await dm.sendTyping();
-            const contexto = await reconstruirContexto(dm, []);
-            let msgIA = await perguntarAoGroqAvancado(
+            const contextoHistorico = await reconstruirContexto(dm, []);
+            let mensagemAleatoria = await perguntarAoGroqAvancado(
               idSorteado,
               usuarioAlvo.username,
               "Puxe assunto comigo no privado do nada.",
-              contexto,
+              contextoHistorico,
             );
-            msgIA = msgIA.replace(/\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi, "");
-            let textoFinal = msgIA.toLowerCase().replace(/,+$/, "").trim();
-            if (textoFinal.length > 0) await dm.send(textoFinal);
+
+            mensagemAleatoria = mensagemAleatoria.replace(
+              /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi,
+              "",
+            );
+            let textoLimpo = mensagemAleatoria
+              .toLowerCase()
+              .replace(/,+$/, "")
+              .trim();
+
+            if (textoLimpo.length > 0) await dm.send(textoLimpo);
           }
-        } catch (e) {
-          console.log(
-            `\x1b[31m[LOG QUEBRÁVEL ERRO] Rotina de DM falhou: ${e.message}\x1b[0m`,
-          );
-        }
+        } catch (err) {}
       }
       rotinaMensagemAleatoria();
     }, tempoEspera);
   }
   rotinaMensagemAleatoria();
 
-  // Verificador de Chat Morto (Após 6 horas sem nenhuma mensagem no canal)
+  // Chat Morto
   setInterval(
     async () => {
-      const agora = Date.now();
-      for (const [channelId, ultimoTempo] of channelActivity.entries()) {
-        if (agora - ultimoTempo > 6 * 60 * 60 * 1000) {
-          console.log(
-            `\x1b[33m[LOG CHAT MORTO] Canal ${channelId} inativo por 6h. Puxando assunto...\x1b[0m`,
-          );
+      const now = Date.now();
+      for (const [channelId, lastTime] of channelActivity.entries()) {
+        if (now - lastTime > 6 * 60 * 60 * 1000) {
           try {
-            const canal = await client.channels.fetch(channelId);
-            if (canal && canal.isTextBased()) {
-              const puxaAssunto = await gerarMensagemUnica(
+            const channel = await client.channels.fetch(channelId);
+            if (channel && channel.isTextBased()) {
+              const quebraGeloDinamico = await gerarMensagemUnica(
                 "O chat do grupo está parado há horas (chat morto). Mande uma frase bem curta e informal de jovem para puxar assunto ou zoar o silêncio de todo mundo.",
               );
-              let textoFinal = puxaAssunto
+              const textoFormato = quebraGeloDinamico
                 .toLowerCase()
                 .replace(/,+$/, "")
                 .trim();
-              await canal.send(textoFinal || "bando de morto kkk alguem vivo?");
+              await channel.send(
+                textoFormato || "bando de morto kkk alguem vivo?",
+              );
               channelActivity.set(channelId, Date.now());
             }
-          } catch (e) {
-            console.log(
-              `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha ao rodar gatilho de quebra de chat morto: ${e.message}\x1b[0m`,
-            );
-          }
+          } catch (e) {}
         }
       }
     },
@@ -480,7 +433,7 @@ client.once("ready", async () => {
 });
 
 // -----------------------------------------------------------
-// MONITORAMENTO E BUFFER DE ENTRADAS
+// INTERCEPTADOR PRINCIPAL E AGRUPADOR DE MENSAGENS
 // -----------------------------------------------------------
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
@@ -508,15 +461,12 @@ client.on("messageCreate", async (message) => {
         userMessageBuffers.delete(bufferKeyParaLimpar);
       }
 
-      console.log(
-        `\x1b[33m[LOG FLOOD] Bloqueando temporariamente o usuário ${message.author.username} por spam.\x1b[0m`,
-      );
-      const avisoFlood = await gerarMensagemUnica(
+      const msgFlood = await gerarMensagemUnica(
         "O usuário está floodando mensagens rápido demais. Mande ele se acalmar ou esperar um pouco de forma bem curta, informal e zoeira.",
       );
-      let textoFinal = avisoFlood.toLowerCase().replace(/,+$/, "").trim();
+      const textoFormato = msgFlood.toLowerCase().replace(/,+$/, "").trim();
       return message.channel
-        .send(textoFinal || "calma mano kkk assim vc me quebra")
+        .send(textoFormato || "mano calma kk deixa eu respirar")
         .catch(() => {});
     }
   } else {
@@ -528,11 +478,11 @@ client.on("messageCreate", async (message) => {
   const bufferKey = `${message.channel.id}-${message.author.id}`;
   const botMention = `<@${client.user.id}>`;
 
-  let mencionado =
+  let partMentioned =
     message.content.includes(botMention) || message.mentions.has(client.user);
-  let textoFiltro = message.content;
-  if (textoFiltro.includes(botMention))
-    textoFiltro = textoFiltro.replace(botMention, "").trim();
+  let cleanText = message.content;
+  if (cleanText.includes(botMention))
+    cleanText = cleanText.replace(botMention, "").trim();
 
   if (!userMessageBuffers.has(bufferKey)) {
     userMessageBuffers.set(bufferKey, {
@@ -546,10 +496,9 @@ client.on("messageCreate", async (message) => {
   }
 
   const buffer = userMessageBuffers.get(bufferKey);
-  if (textoFiltro.length > 0) buffer.textParts.push(textoFiltro);
-  if (!buffer.msgIds.includes(message.id)) buffer.msgIds.push(message.id);
-
-  if (mencionado) buffer.wasMentioned = true;
+  if (cleanText.length > 0) buffer.textParts.push(cleanText);
+  buffer.msgIds.push(message.id);
+  if (partMentioned) buffer.wasMentioned = true;
   if (
     message.attachments.size > 0 ||
     message.content.includes("http") ||
@@ -559,6 +508,7 @@ client.on("messageCreate", async (message) => {
   buffer.lastMessageObj = message;
 
   if (buffer.timer) clearTimeout(buffer.timer);
+
   buffer.timer = setTimeout(async () => {
     userMessageBuffers.delete(bufferKey);
     await processarMensagemFinal(buffer);
@@ -566,7 +516,7 @@ client.on("messageCreate", async (message) => {
 });
 
 // -----------------------------------------------------------
-// ENGINE DE PROCESSAMENTO FINAL (SEM REPLIES)
+// PROCESSAMENTO FINAL E ENVIO
 // -----------------------------------------------------------
 async function processarMensagemFinal(buffer) {
   const message = buffer.lastMessageObj;
@@ -574,11 +524,11 @@ async function processarMensagemFinal(buffer) {
     ? message.member.displayName
     : message.author.username;
   let msgText = buffer.textParts.join(" ... ");
-  let foiMencionado = buffer.wasMentioned;
-  let seMeteuNoAssunto = false;
+  let isMentioned = buffer.wasMentioned;
+  let chimesIn = false;
 
-  if (!foiMencionado && message.guild) {
-    const palavrasChave = [
+  if (!isMentioned && message.guild) {
+    const keywords = [
       "jogo",
       "filme",
       "meme",
@@ -590,25 +540,25 @@ async function processarMensagemFinal(buffer) {
       "bizarro",
     ];
     if (
-      palavrasChave.some((k) => msgText.toLowerCase().includes(k)) &&
+      keywords.some((k) => msgText.toLowerCase().includes(k)) &&
       Math.random() < 0.07
     )
-      seMeteuNoAssunto = true;
+      chimesIn = true;
   }
 
-  if (message.guild && !foiMencionado && !seMeteuNoAssunto) return;
+  if (message.guild && !isMentioned && !chimesIn) return;
 
-  const apenasMidiaOuLink =
+  const soMidiaOuLink =
     (msgText.trim().length === 0 && buffer.hasMedia) ||
     (msgText.includes("http") && msgText.split(" ").length <= 2);
-  if (apenasMidiaOuLink) {
+  if (soMidiaOuLink) {
     await new Promise((r) => setTimeout(r, 3000));
-    const respMidia = await gerarMensagemUnica(
+    const respMedia = await gerarMensagemUnica(
       "Mande uma reação super curta (de 1 a 3 palavras) e informal sobre uma mídia, meme ou link que o usuário acabou de mandar.",
     );
-    let textoFinal = respMidia.toLowerCase().replace(/,+$/, "").trim();
+    const textoFormato = respMedia.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
-      .send(textoFinal || "carai kkk")
+      .send(textoFormato || "carai kkk")
       .catch(() => {});
   }
 
@@ -618,23 +568,23 @@ async function processarMensagemFinal(buffer) {
     msgText.toLowerCase() === "hm"
   ) {
     if (Math.random() < 0.2) return message.react("👀").catch(() => {});
-    const respVazio = await gerarMensagemUnica(
+    const respVazia = await gerarMensagemUnica(
       `O usuário chamado ${nomeUsuario} te marcou mas não digitou nada relevante. Mande ele falar o que quer.`,
     );
-    let textoFinal = respVazio.toLowerCase().replace(/,+$/, "").trim();
+    const textoFormato = respVazia.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
-      .send(textoFinal || "eai manda")
+      .send(textoFormato || "eai manda")
       .catch(() => {});
   }
 
   const txtMin = msgText.toLowerCase();
   if (lastUserMessage.get(message.author.id) === txtMin) {
-    const respRepetida = await gerarMensagemUnica(
+    const respDuplicada = await gerarMensagemUnica(
       `O usuário chamado ${nomeUsuario} repetiu a mesma mensagem. Diga de forma zoeira para mudar o disco.`,
     );
-    let textoFinal = respRepetida.toLowerCase().replace(/,+$/, "").trim();
+    const textoFormato = respDuplicada.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
-      .send(textoFinal || "vc ja perguntou isso doido kkk")
+      .send(textoFormato || "vc ja perguntou isso doido kkk")
       .catch(() => {});
   }
   lastUserMessage.set(message.author.id, txtMin);
@@ -670,49 +620,41 @@ async function processarMensagemFinal(buffer) {
     9000,
   );
 
-  const contexto = await reconstruirContexto(message.channel, buffer.msgIds);
-
-  console.log(
-    `\x1b[36m[LOG REQUISIÇÃO IA] Enviando prompt para Groq. Usuário: ${nomeUsuario}. Histórico carregado: ${contexto.length} msgs.\x1b[0m`,
+  const contextoHistorico = await reconstruirContexto(
+    message.channel,
+    buffer.msgIds,
   );
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
     nomeUsuario,
     msgText,
-    contexto,
+    contextoHistorico,
   );
 
   const lembreteRegexGlobal = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/gi;
-  let match;
-  let criouLembrete = false;
+  let matchLembrete;
+  let detetouLembrete = false;
 
-  while ((match = lembreteRegexGlobal.exec(respostaIA)) !== null) {
-    const min = parseInt(match[1], 10);
-    const txtAviso = match[2].trim();
+  while ((matchLembrete = lembreteRegexGlobal.exec(respostaIA)) !== null) {
+    const minutos = parseInt(matchLembrete[1], 10);
+    const textoCustomizado = matchLembrete[2].trim();
 
-    if (!isNaN(min) && min > 0) {
+    if (!isNaN(minutos) && minutos > 0) {
       bancoLembretes.push({
         userId: message.author.id,
         channelId: message.channel.id,
         isDM: !message.guild,
-        textoAlarme: txtAviso,
-        timestampDisparo: Date.now() + min * 60 * 1000,
+        textoAlarme: textoCustomizado,
+        timestampDisparo: Date.now() + minutos * 60 * 1000,
       });
-      criouLembrete = true;
+      detetouLembrete = true;
       console.log(
-        `\x1b[32m[LOG GESTOR] AGENDADO COM SUCESSO: Lembrete para ${nomeUsuario} daqui a ${min} minutos.\x1b[0m`,
+        `\x1b[32m[LOG GESTOR] Novo alarme agendado com sucesso para ${nomeUsuario}.\x1b[0m`,
       );
     }
   }
 
-  if (criouLembrete) {
-    buffer.msgIds.forEach((id) => {
-      if (!idsComandosExecutados.includes(id)) idsComandosExecutados.push(id);
-    });
-
-    if (idsComandosExecutados.length > 300)
-      idsComandosExecutados = idsComandosExecutados.slice(-300);
-
+  if (detetouLembrete) {
     respostaIA = respostaIA.replace(lembreteRegexGlobal, "").trim();
     guardarLembretesNoDisco();
   }
@@ -758,9 +700,6 @@ async function processarMensagemFinal(buffer) {
       }
       await message.channel.send(textoFinal);
     } catch (erroDeEnvio) {
-      console.log(
-        `\x1b[31m[LOG QUEBRÁVEL ERRO] Falha ao enviar bloco de mensagem final no Discord: ${erroDeEnvio.message}\x1b[0m`,
-      );
       await message.channel.send(textoFinal).catch(() => {});
     }
   }
@@ -768,11 +707,11 @@ async function processarMensagemFinal(buffer) {
 
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isCommand()) {
-    const slash = client.commands.get(interaction.commandName);
-    if (slash)
-      try {
-        await slash.execute(client, interaction, null);
-      } catch (e) {}
+    const slashCommand = client.commands.get(interaction.commandName);
+    if (!slashCommand) return;
+    try {
+      await slashCommand.execute(client, interaction, null);
+    } catch (err) {}
   }
 });
 
