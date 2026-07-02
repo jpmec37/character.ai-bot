@@ -101,11 +101,10 @@ function buscarNaWebNativo(query) {
 }
 
 // -----------------------------------------------------------
-// 🧠 MEMÓRIA RESILIENTE MÁXIMA (Agora lê até 100 mensagens)
+// 🧠 MEMÓRIA RESILIENTE MÁXIMA (Até 100 mensagens)
 // -----------------------------------------------------------
 async function reconstruirContexto(channel, ignoreIds = []) {
     try {
-        // Limite máximo seguro do Discord por requisição e limite prático para a IA não travar
         const fetched = await channel.messages.fetch({ limit: 100 }); 
         const mensagens = [];
         fetched.reverse().forEach(msg => {
@@ -123,11 +122,12 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// COMUNICAÇÃO COM GROQ (INTELIGÊNCIA EMOCIONAL)
+// COMUNICAÇÃO COM GROQ (INTELIGÊNCIA EMOCIONAL + LEMBRETES)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, contextoHistorico) {
     try {
-        const dataHoraBrasil = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+        const opcoesData = { timeZone: 'America/Sao_Paulo', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+        const dataHoraBrasil = new Date().toLocaleString('pt-BR', opcoesData);
 
         const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
 1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases).
@@ -136,7 +136,8 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
 4. EMOJIS (QUASE NUNCA USE): Use emojis de forma MUITO rara (ex: em 1 a cada 10 mensagens). Você não liga pra emojis. Se for obrigado a usar, use no máximo UM, no final da frase. Opções: 💀, 😭, 🤓, 🤡, 🤨, 🐒, 👀, 🤙, 😂, 🔥, 😎.
 5. Variação de risada: nunca use sempre "kkk". Alterne para "ksksk", "ashuahsu", "mds kkkkk".
 6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome dele.
-7. O horário atual no Brasil agora é ${dataHoraBrasil}.`;
+7. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
+8. SISTEMA DE LEMBRETE: Se o usuário pedir para você lembrar ele de algo, adicione EXATAMENTE esta tag no final da sua resposta: [LEMBRETE: minutos | mensagem]. Exemplo: se ele disser "me lembra de beber água em 15 minutos", coloque [LEMBRETE: 15 | beber água]. IMPORTANTE: Se o usuário disser "daqui a pouco" ou "daqui a um tempo", ESCOLHA VOCÊ MESMO um número aleatório entre 5 e 15 minutos para colocar na tag. Converta horas para minutos se necessário.`;
 
         const sistemaPersonalidade = (config.personalidade || process.env.PERSONALIDADE || "Você é um humano jovem no discord.") + instrucoesDisfarce;
         
@@ -168,7 +169,7 @@ async function perguntarAoGroqAvancado(idUsuario, nomeUsuario, textoAtual, conte
 // EVENTOS DE START E ROTINAS
 // -----------------------------------------------------------
 client.once("ready", async () => {
-    console.log(`${client.user.username} (Self-Bot Humanizado V8) operante com 100 mensagens de memória!`);
+    console.log(`${client.user.username} (Self-Bot Humanizado V10) operante com Relógio, Calendário e Alarme Orgânico!`);
     client.user.setPresence({ activities: [{ name: "conversando", type: 0 }], status: "online" });
 
     // DM Aleatória
@@ -185,7 +186,8 @@ client.once("ready", async () => {
                         await dm.sendTyping();
                         const contextoHistorico = await reconstruirContexto(dm, []);
                         const mensagemAleatoria = await perguntarAoGroqAvancado(idSorteado, usuarioAlvo.username, "Puxe assunto comigo no privado do nada.", contextoHistorico);
-                        await dm.send(mensagemAleatoria.toLowerCase());
+                        let textoLimpo = mensagemAleatoria.replace(/\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/i, "").trim();
+                        await dm.send(textoLimpo.toLowerCase());
                     }
                 } catch (err) {}
             }
@@ -345,7 +347,29 @@ async function processarMensagemFinal(buffer) {
     const contextoHistorico = await reconstruirContexto(message.channel, buffer.msgIds); 
     
     // 2. CHAMA A IA PARA PENSAR 
-    const respostaIA = await perguntarAoGroqAvancado(message.author.id, nomeUsuario, msgText, contextoHistorico);
+    let respostaIA = await perguntarAoGroqAvancado(message.author.id, nomeUsuario, msgText, contextoHistorico);
+    
+    // INTERCEPTADOR DE LEMBRETES: Retira a tag da IA e cria o alarme real
+    const lembreteRegex = /\[LEMBRETE:\s*(\d+)\s*\|\s*(.*?)\]/i;
+    const matchLembrete = respostaIA.match(lembreteRegex);
+    if (matchLembrete) {
+        const minutosLembrete = parseInt(matchLembrete[1], 10);
+        const textoLembrete = matchLembrete[2];
+        const tempoEmMs = minutosLembrete * 60 * 1000;
+        
+        // Apaga a tag secreta para não aparecer pro usuário
+        respostaIA = respostaIA.replace(lembreteRegex, "").trim();
+
+        // Programa o alarme no sistema
+        setTimeout(async () => {
+            try {
+                const user = await client.users.fetch(message.author.id);
+                if (user) await user.send(`aí ${nomeUsuario}, tu pediu pra eu te lembrar disso aq: ${textoLembrete}`);
+            } catch (e) {
+                message.channel.send(`<@${message.author.id}> ow mano, tu pediu pra lembrar disso: ${textoLembrete}`).catch(()=>{});
+            }
+        }, tempoEmMs);
+    }
     
     // 3. CALCULA O TEMPO REAL DE DIGITAÇÃO 
     let tempoDigitando = Math.floor(respostaIA.length * 12 * multiplicadorLentidao);
