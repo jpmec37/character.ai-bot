@@ -7,6 +7,21 @@ const http = require("http");
 const https = require("https");
 
 // ================================================================
+// SISTEMA DE PROTEÇÃO CONTRA QUEDAS E ERROS INESPERADOS (ANTI-CRASH)
+// ================================================================
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("\x1b[31m[ERRO CRÍTICO - Unhandled Rejection]:\x1b[0m", reason);
+});
+process.on("uncaughtException", (err, origin) => {
+  console.error(
+    "\x1b[31m[ERRO CRÍTICO - Uncaught Exception]:\x1b[0m",
+    err,
+    "Origem:",
+    origin,
+  );
+});
+
+// ================================================================
 // MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER
 // ================================================================
 const PORT = process.env.PORT || 3000;
@@ -16,7 +31,9 @@ http
     res.end("Himmel versão self-bot - Sistema de Lembretes Blindado com Logs!");
   })
   .listen(PORT, () => {
-    console.log(`\x1b[32m[Web Server] Ouvindo na porta ${PORT}.\x1b[0m`);
+    console.log(
+      `\x1b[32m[WEB SERVER] Ouvindo e operando na porta ${PORT}.\x1b[0m`,
+    );
   });
 
 // ================================================================
@@ -53,18 +70,18 @@ const client = new Client({
 });
 
 // -----------------------------------------------------------
-// 💾 GESTOR DE LEMBRETES PERSISTENTES
+// 💾 GESTOR DE LEMBRETES PERSISTENTES (LOGS DE DISCO)
 // -----------------------------------------------------------
 let bancoLembretes = [];
 if (fs.existsSync("./lembretes.json")) {
   try {
     bancoLembretes = JSON.parse(fs.readFileSync("./lembretes.json", "utf-8"));
     console.log(
-      `\x1b[34m[LOG GESTOR] Carregados ${bancoLembretes.length} lembretes ativos do disco.\x1b[0m`,
+      `\x1b[36m[BANCO DADOS] Carregados ${bancoLembretes.length} lembretes ativos do arquivo JSON.\x1b[0m`,
     );
   } catch (e) {
     console.log(
-      `\x1b[31m[LOG ERRO DISCO] Arquivo de lembretes corrompido, iniciando limpo.\x1b[0m`,
+      `\x1b[31m[BANCO DADOS - ERRO] Arquivo de lembretes corrompido, iniciando banco limpo.\x1b[0m`,
     );
     bancoLembretes = [];
   }
@@ -78,11 +95,11 @@ function guardarLembretesNoDisco() {
       "utf-8",
     );
     console.log(
-      `\x1b[36m[LOG DISCO] Banco de lembretes atualizado com sucesso.\x1b[0m`,
+      `\x1b[36m[BANCO DADOS] Arquivo 'lembretes.json' atualizado com sucesso no disco.\x1b[0m`,
     );
   } catch (err) {
     console.log(
-      `\x1b[31m[LOG ERRO DISCO] Falha ao salvar arquivo JSON: ${err.message}\x1b[0m`,
+      `\x1b[31m[BANCO DADOS - ERRO] Falha ao salvar arquivo JSON: ${err.message}\x1b[0m`,
     );
   }
 }
@@ -126,9 +143,12 @@ function precisaDeInternet(texto) {
   return termosBusca.some((termo) => texto.toLowerCase().includes(termo));
 }
 
+// -----------------------------------------------------------
+// 🔍 SISTEMA DE LOGS DETALHADOS PARA A PESQUISA WEB
+// -----------------------------------------------------------
 function buscarNaWebNativo(query) {
   console.log(
-    `\x1b[33m[LOG WEB] Buscando dados externos para: "${query}"...\x1b[0m`,
+    `\x1b[33m[SISTEMA PESQUISA] Iniciando busca externa para o termo: "${query}"\x1b[0m`,
   );
   return new Promise((resolve) => {
     const urlApi = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
@@ -139,9 +159,21 @@ function buscarNaWebNativo(query) {
         res.on("end", () => {
           try {
             const json = JSON.parse(data);
-            if (json.AbstractText)
+            if (json.AbstractText) {
+              console.log(
+                `\x1b[32m[SISTEMA PESQUISA] Resposta obtida via API Oficial (AbstractText).\x1b[0m`,
+              );
               return resolve(`Resumo: ${json.AbstractText}`);
-          } catch (e) {}
+            }
+          } catch (e) {
+            console.log(
+              `\x1b[31m[SISTEMA PESQUISA - ERRO] Falha ao ler JSON da API oficial.\x1b[0m`,
+            );
+          }
+
+          console.log(
+            `\x1b[33m[SISTEMA PESQUISA] API Oficial sem dados diretos. Ativando fallback de Raspagem HTML...\x1b[0m`,
+          );
           const urlHtml = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
           https
             .get(
@@ -160,7 +192,7 @@ function buscarNaWebNativo(query) {
                     htmlData.length < 1000
                   ) {
                     console.log(
-                      `\x1b[31m[LOG WEB ERRO] DuckDuckGo bloqueou a raspagem (Captcha).\x1b[0m`,
+                      `\x1b[31m[SISTEMA PESQUISA - BLOQUEIO] DuckDuckGo barrou a raspagem HTML (Captcha detectado).\x1b[0m`,
                     );
                     return resolve("");
                   }
@@ -178,20 +210,33 @@ function buscarNaWebNativo(query) {
                       .trim();
                     if (limpo.length > 15) resultados.push(limpo);
                   }
+                  console.log(
+                    `\x1b[32m[SISTEMA PESQUISA] Raspagem HTML finalizada. Encontrados ${resultados.length} trechos úteis.\x1b[0m`,
+                  );
                   resolve(resultados.join(" | "));
                 });
               },
             )
-            .on("error", () => resolve(""));
+            .on("error", (err) => {
+              console.log(
+                `\x1b[31m[SISTEMA PESQUISA - ERRO] Falha na requisição de raspagem HTML: ${err.message}\x1b[0m`,
+              );
+              resolve("");
+            });
         });
       })
-      .on("error", () => resolve(""));
+      .on("error", (err) => {
+        console.log(
+          `\x1b[31m[SISTEMA PESQUISA - ERRO] Falha na requisição da API Oficial: ${err.message}\x1b[0m`,
+        );
+        resolve("");
+      });
   });
 }
 
 async function gerarMensagemUnica(comandoInstrucao) {
   try {
-    const sistemaBase = `Escreva uma resposta curta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
+    const sistemaBase = `Escreva uma resposta corta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: sistemaBase }],
       model: "llama-3.1-8b-instant",
@@ -270,6 +315,7 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
 
     let contextoWeb = "";
     if (precisaDeInternet(textoAtual)) {
+      // LOG removido daqui para evitar poluição geral da IA, mantendo apenas dentro da função buscarNaWebNativo()
       const dadosBusca = await buscarNaWebNativo(textoAtual);
       if (dadosBusca && dadosBusca.length > 5) {
         contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder, mas minta que sabia de cabeça.`;
@@ -285,9 +331,6 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
       content: `[${nomeUsuario}]: ${textoAtual}`,
     });
 
-    console.log(
-      `\x1b[35m[LOG API] Fazendo chamada principal para a API da Groq...\x1b[0m`,
-    );
     const chatCompletion = await groq.chat.completions.create({
       messages: mensagensParaEnviar,
       model: "llama-3.1-8b-instant",
@@ -304,16 +347,18 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
 }
 
 // -----------------------------------------------------------
-// EVENTOS DE START E ROTINAS
+// EVENTOS DE START E ROTINAS (CRON DE LEMBRETES MONITORADO)
 // -----------------------------------------------------------
 client.once("ready", async () => {
-  console.log(`\x1b[32m[LOG] ${client.user.username} logado e pronto!\x1b[0m`);
+  console.log(
+    `\x1b[32m[LOG SYSTEM] ${client.user.username} conectado e operando no Discord!\x1b[0m`,
+  );
   client.user.setPresence({
     activities: [{ name: "conversando", type: 0 }],
     status: "online",
   });
 
-  // Verificador Cron de Lembretes
+  // Verificador Cron de Lembretes Monitorado
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -323,7 +368,7 @@ client.once("ready", async () => {
 
       if (agora >= lembrete.timestampDisparo) {
         console.log(
-          `\x1b[34m[LOG LEMBRETE] Disparando alarme agendado do usuário ${lembrete.userId}\x1b[0m`,
+          `\x1b[34m[SISTEMA LEMBRETE] Cron detectou alarme expirado! Disparando para o usuário ID: ${lembrete.userId}\x1b[0m`,
         );
         try {
           const destino = lembrete.isDM
@@ -333,15 +378,25 @@ client.once("ready", async () => {
           if (destino) {
             if (lembrete.isDM) {
               await destino.send(lembrete.textoAlarme);
+              console.log(
+                `\x1b[32m[SISTEMA LEMBRETE] Mensagem entregue com sucesso via DM direta.\x1b[0m`,
+              );
             } else {
               await destino.send(
                 `<@${lembrete.userId}> ${lembrete.textoAlarme}`,
               );
+              console.log(
+                `\x1b[32m[SISTEMA LEMBRETE] Mensagem entregue com sucesso no Canal ID: ${lembrete.channelId}.\x1b[0m`,
+              );
             }
+          } else {
+            console.log(
+              `\x1b[31m[SISTEMA LEMBRETE - ERRO] Destino não encontrado ou inacessível.\x1b[0m`,
+            );
           }
         } catch (err) {
           console.log(
-            `\x1b[31m[LOG ERRO DISCORD] Erro ao entregar lembrete: ${err.message}\x1b[0m`,
+            `\x1b[31m[SISTEMA LEMBRETE - ERRO DISCORD] Falha ao entregar lembrete (DM fechada ou sem permissão): ${err.message}\x1b[0m`,
           );
         }
         bancoLembretes.splice(i, 1);
@@ -515,7 +570,7 @@ client.on("messageCreate", async (message) => {
 });
 
 // -----------------------------------------------------------
-// PROCESSAMENTO FINAL E ENVIO (TRECHO CORRIGIDO)
+// PROCESSAMENTO FINAL E ENVIO
 // -----------------------------------------------------------
 async function processarMensagemFinal(buffer) {
   const message = buffer.lastMessageObj;
@@ -631,14 +686,13 @@ async function processarMensagemFinal(buffer) {
   );
 
   // ================================================================
-  // SISTEMA CORRIGIDO DE CAPTURA E PARSING DE LEMBRETES
+  // SISTEMA CORRIGIDO DE CAPTURA E PARSING DE LEMBRETES (MONITORADO)
   // ================================================================
   const regexLembreteFlexivel =
     /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i;
   let matchLembrete = respostaIA.match(regexLembreteFlexivel);
 
   if (matchLembrete) {
-    // Remove texto não numérico (limpa "2 minutos" deixando apenas "2")
     const apenasNumeros = matchLembrete[1].replace(/\D/g, "");
     const minutos = parseInt(apenasNumeros, 10);
     const textoCustomizado = matchLembrete[2].trim();
@@ -652,14 +706,16 @@ async function processarMensagemFinal(buffer) {
         timestampDisparo: Date.now() + minutos * 60 * 1000,
       });
 
-      // Força a impressão no console para você acompanhar no painel da Render
       console.log(
-        `\x1b[32m[SUCESSO GESTOR] Novo alarme agendado via chat: "${textoCustomizado}" para daqui a ${minutos}m.\x1b[0m`,
+        `\x1b[32m[SISTEMA LEMBRETE] Novo alarme registrado! Usuário: ${nomeUsuario} (${message.author.id}) | Tempo: ${minutos}m | Alarme: "${textoCustomizado}"\x1b[0m`,
       );
 
-      // Remove completamente a estrutura da tag do texto final para não vazar no Discord
       respostaIA = respostaIA.replace(regexLembreteFlexivel, "").trim();
       guardarLembretesNoDisco();
+    } else {
+      console.log(
+        `\x1b[31m[SISTEMA LEMBRETE - FALHA] IA tentou gerar uma tag de lembrete mas os minutos eram inválidos: "${matchLembrete[1]}"\x1b[0m`,
+      );
     }
   }
   // ================================================================
@@ -705,7 +761,9 @@ async function processarMensagemFinal(buffer) {
       }
       await message.channel.send(textoFinal);
     } catch (erroDeEnvio) {
-      await message.channel.send(textoFinal).catch(() => {});
+      console.log(
+        `\x1b[31m[CHAT - ERRO ENVIO] Falha ao enviar mensagem fracionada no Discord.\x1b[0m`,
+      );
     }
   }
 }
@@ -716,7 +774,11 @@ client.on("interactionCreate", async (interaction) => {
     if (!slashCommand) return;
     try {
       await slashCommand.execute(client, interaction, null);
-    } catch (err) {}
+    } catch (err) {
+      console.log(
+        `\x1b[31m[SLASH COMMAND - ERRO] Falha ao executar /${interaction.commandName}: ${err.message}\x1b[0m`,
+      );
+    }
   }
 });
 
