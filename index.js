@@ -123,31 +123,32 @@ if (fs.existsSync("./commands")) {
 }
 
 // -----------------------------------------------------------
-// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (CÉREBRO IA)
+// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (CÉREBRO IA RÍGIDO)
 // -----------------------------------------------------------
 async function avaliarNecessidadeDePesquisa(textoUsuario) {
   try {
-    const anoAtual = new Date().getFullYear();
+    const promptTriagem = `Você é um analisador lógico RÍGIDO de um bot do Discord. Sua ÚNICA função é decidir se a mensagem atual exige uma pesquisa na internet.
 
-    const promptTriagem = `Você é o cérebro de triagem de buscas de um bot do Discord. Sua função é ler a mensagem do usuário e decidir se o bot precisa pesquisar na internet para responder corretamente.
+Você SÓ DEVE retornar "SIM" se a mensagem for EXPLICITAMENTE uma pergunta sobre fatos recentes, notícias do dia, clima atual, resultados/placares de futebol ou esportes, ou dados concretos do mundo real.
+Se for conversa fiada, perguntas sobre você mesmo, pedir conselhos, falar sobre pesquisas ("quero testar a pesquisa"), saudações ou piadas, retorne APENAS a palavra: NAO.
 
-PRECISA DE INTERNET: Resultados de futebol/esportes, placares, notícias recentes, previsão do tempo, dados factuais atualizados (após 2023), informações de lançamentos.
-NÃO PRECISA: Papo furado, saudações, piadas, opiniões pessoais, pedir conselhos.
+Regras de Resposta:
+- Precisa pesquisar fatos externos: responda "SIM | termo_de_busca_otimizado" (Ex: SIM | placar jogo flamengo ontem)
+- É apenas conversa: responda "NAO"
 
-Se precisar pesquisar, responda EXATAMENTE neste formato: SIM | termo_de_busca_otimizado
-Se NÃO precisar pesquisar, responda APENAS a palavra: NAO
-
-EXEMPLOS:
-User: "quem ganhou o jogo do flamengo ontem?" -> SIM | resultado jogo flamengo ontem placar
-User: "quais foram os jogos da copa do mundo de ontem?" -> SIM | resultados placar jogos copa do mundo ontem
-User: "eai mano blz?" -> NAO
+Exemplos Práticos:
+User: "quem ganhou o jogo de ontem?" -> SIM | resultado jogo ontem placar
+User: "testando a pesquisa do bot" -> NAO
+User: "qual a temperatura agora em SP?" -> SIM | temperatura clima são paulo agora
+User: "vc acha o neymar bom?" -> NAO
+User: "me lembra de dormir" -> NAO
 
 Mensagem atual do usuário: "${textoUsuario}"`;
 
     const triagemCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptTriagem }],
       model: "llama-3.1-8b-instant",
-      temperature: 0.0,
+      temperature: 0.0, // Temperatura zero para manter a IA 100% lógica e fria
       max_tokens: 30,
     });
 
@@ -158,13 +159,13 @@ Mensagem atual do usuário: "${textoUsuario}"`;
       const partes = respostaTriagem.split("|");
       const termoExtraido = partes.length > 1 ? partes[1].trim() : textoUsuario;
       console.log(
-        `\x1b[35m[IA TRIAGEM] Decidiu que SIM. Busca otimizada gerada: "${termoExtraido}"\x1b[0m`,
+        `\x1b[35m[IA TRIAGEM] Decidiu que SIM. Busca gerada: "${termoExtraido}"\x1b[0m`,
       );
       return { devePesquisar: true, termoBusca: termoExtraido };
     }
 
     console.log(
-      `\x1b[35m[IA TRIAGEM] Decidiu que NAO precisa de internet.\x1b[0m`,
+      `\x1b[35m[IA TRIAGEM] Decidiu que NAO precisa de internet para essa mensagem.\x1b[0m`,
     );
     return { devePesquisar: false, termoBusca: "" };
   } catch (err) {
@@ -335,25 +336,28 @@ async function perguntarAoGroqAvancado(
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
 
   if (analisePesquisa.devePesquisar) {
-    // Sanitização do termo de busca: remove gírias de chat e limpa expressões temporais comuns
+    // Sanitização Forte: remove gírias, arruma o anti ontem e tira pontuação que buga as URLs
     let termoSanitizado = analisePesquisa.termoBusca
       .toLowerCase()
       .replace(/\banti\s*ontem\b/g, "anteontem")
       .replace(/\bce\b/g, "você")
-      .replace(/\bagr\b/g, "agora");
+      .replace(/\bagr\b/g, "agora")
+      .replace(/[?!.]/g, "")
+      .trim();
 
     console.log(
-      `\x1b[36m[SISTEMA PESQUISA] Termo original: "${analisePesquisa.termoBusca}" -> Sanitizado para: "${termoSanitizado}"\x1b[0m`,
+      `\x1b[36m[SISTEMA PESQUISA] Sanitizado e otimizado para: "${termoSanitizado}"\x1b[0m`,
     );
 
     const dadosBusca = await buscarNaWebNativo(termoSanitizado);
+
     if (dadosBusca && dadosBusca.length > 5) {
       contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder com precisão factual absoluta, mas finja que já sabia de cabeça.`;
     } else {
       console.log(
         `\x1b[31m[LOG IA] Avisando o modelo que a busca na web falhou ou retornou vazia.\x1b[0m`,
       );
-      contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${termoSanitizado}", mas o sistema de busca falhou ou retornou zero resultados. Seja sincero de forma natural e informal: diga que deu uma olhada rápida na internet para ver se achava mas acabou não encontrando dados precisos sobre isso.\n</AVISO_DE_SISTEMA>`;
+      contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${termoSanitizado}", mas o sistema de busca falhou ou retornou zero resultados. Seja sincero de forma natural e informal: diga que deu uma olhada rápida na internet para ver se achava mas acabou não encontrando dados precisos sobre isso ou que a busca bugou.\n</AVISO_DE_SISTEMA>`;
     }
   }
 
