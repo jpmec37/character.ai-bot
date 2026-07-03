@@ -97,7 +97,7 @@ function guardarLembretesNoDisco() {
       "utf-8",
     );
     console.log(
-      `\x1b[36m[LOG DISCO] Banco de lembretes atualizado com sucesso.\x1b[0m`,
+      `\x1b[36m[LOG DISCO] Banco de lembretes updated com sucesso.\x1b[0m`,
     );
   } catch (err) {
     console.log(
@@ -148,7 +148,7 @@ Mensagem atual do usuário: "${textoUsuario}"`;
     const triagemCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptTriagem }],
       model: "llama-3.1-8b-instant",
-      temperature: 0.0, // Temperatura zero para manter a IA 100% lógica e fria
+      temperature: 0.0,
       max_tokens: 30,
     });
 
@@ -258,7 +258,7 @@ function buscarNaWebNativo(query) {
 // -----------------------------------------------------------
 async function gerarMensagemUnica(comandoInstrucao) {
   try {
-    const sistemaBase = `Escreva uma resposta curta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
+    const sistemaBase = `Escreva uma resposta corta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: sistemaBase }],
       model: "llama-3.1-8b-instant",
@@ -290,7 +290,6 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 
       if (conteudo.length === 0) return;
 
-      // FILTRO DE SEGURANÇA: Se o bot vazou regras ou bugou no chat antes, ignora para não criar loop
       if (msg.author.id === client.user.id) {
         const txtMin = conteudo.toLowerCase();
         if (
@@ -332,11 +331,9 @@ async function perguntarAoGroqAvancado(
 ) {
   let contextoWeb = "";
 
-  // 1. Executa a avaliação cognitiva inteligente
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
 
   if (analisePesquisa.devePesquisar) {
-    // Sanitização Forte: remove gírias, arruma o anti ontem e tira pontuação que buga as URLs
     let termoSanitizado = analisePesquisa.termoBusca
       .toLowerCase()
       .replace(/\banti\s*ontem\b/g, "anteontem")
@@ -380,7 +377,6 @@ async function perguntarAoGroqAvancado(
       };
       const dataHoraBrasil = new Date().toLocaleString("pt-BR", opcoesData);
 
-      // PROMPT REESTRUTURADO EM BLOCOS DE CONTEXTO SEPARADOS
       const instrucoesDisfarce = `\n\n
 <REGRAS_DE_ESTILO>
 - Formato: tudo sempre em minúsculo, sem nenhuma pontuação formal no fim das frases (. ! ?). Nunca termine mensagens com vírgula (,).
@@ -418,7 +414,7 @@ async function perguntarAoGroqAvancado(
       const chatCompletion = await groq.chat.completions.create({
         messages: mensagensParaEnviar,
         model: modeloAtual,
-        temperature: 0.3, // Reduzido ligeiramente para torná-lo mais determinístico e obediente
+        temperature: 0.3,
       });
 
       return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
@@ -447,7 +443,7 @@ client.once("ready", async () => {
     status: "online",
   });
 
-  // Verificador Cron de Lembretes
+  // Verificador Cron de Lembretes (AGORA HUMANIZADO COM IA E SLANGS)
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -465,12 +461,31 @@ client.once("ready", async () => {
             : await client.channels.fetch(lembrete.channelId);
 
           if (destino) {
+            // Solicita um aviso customizado gerado de forma fluida pela IA
+            const avisoIA = await gerarMensagemUnica(
+              `O cronômetro de um usuário acabou de bater. O que ele tinha pedido para lembrar é: "${lembrete.textoAlarme}". Crie uma frase bem curta, de jovem de internet, avisando ou zoando ele de forma descontraída, sem pontuação formal.`,
+            );
+
+            let textoFinal = avisoIA.toLowerCase().trim();
+            textoFinal = textoFinal.replace(/,+$/, "");
+
+            // FALLBACKS RESERVA: Se a API falhar ou demorar, usa uma rota humana alternativa
+            if (!textoFinal || textoFinal.length < 3) {
+              const giriasReserva = [
+                `ow mano, tu pediu pra te lembrar de ${lembrete.textoAlarme} ksks`,
+                `passando pra avisar da fita lá: ${lembrete.textoAlarme} mds tinha esquecido né`,
+                `bro, aqui o aviso q tu pediu pra lembrar: ${lembrete.textoAlarme}`,
+                `lembrete pra tu não mofar: ${lembrete.textoAlarme} ashuahsu`,
+                `acorda ae kkk tu pediu pra lembrar de ${lembrete.textoAlarme}`,
+              ];
+              textoFinal =
+                giriasReserva[Math.floor(Math.random() * giriasReserva.length)];
+            }
+
             if (lembrete.isDM) {
-              await destino.send(lembrete.textoAlarme);
+              await destino.send(textoFinal);
             } else {
-              await destino.send(
-                `<@${lembrete.userId}> ${lembrete.textoAlarme}`,
-              );
+              await destino.send(`<@${lembrete.userId}> ${textoFinal}`);
             }
           }
         } catch (err) {
@@ -764,9 +779,6 @@ async function processarMensagemFinal(buffer) {
     contextoHistorico,
   );
 
-  // ================================================================
-  // SISTEMA DE CAPTURA E PARSING DE LEMBRETES
-  // ================================================================
   const regexLembreteFlexivel =
     /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i;
   let matchLembrete = respostaIA.match(regexLembreteFlexivel);
@@ -794,7 +806,6 @@ async function processarMensagemFinal(buffer) {
     }
   }
 
-  // FILTRO DE LIMPEZA DE SEGURANÇA (Para evitar vazamento da IA no chat)
   respostaIA = respostaIA.replace(
     /lembrete:\s*\d+\s*(minutos|minuto|m|hora|horas|h|dia|dias|d)?(,\s*)?/gi,
     "",
@@ -803,11 +814,9 @@ async function processarMensagemFinal(buffer) {
   respostaIA = respostaIA.replace(/deixa comigo,\s*/gi, "deixa comigo ");
   respostaIA = respostaIA.trim();
 
-  // ANTI-MENSAGEM VAZIA (Se a limpeza apagar tudo)
   if (respostaIA.length === 0) {
     respostaIA = "demorou, já deixei anotado aqui";
   }
-  // ================================================================
 
   let tempoDigitando = Math.floor(
     respostaIA.length * 12 * multiplicadorLentidao,
