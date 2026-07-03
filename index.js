@@ -121,45 +121,61 @@ if (fs.existsSync("./commands")) {
 }
 
 // -----------------------------------------------------------
-// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (SUBSTITUI PALAVRAS-CHAVE)
+// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (SEM PALAVRAS-CHAVE)
 // -----------------------------------------------------------
 async function avaliarNecessidadeDePesquisa(textoUsuario) {
   try {
     const anoAtual = new Date().getFullYear();
-    const promptTriagem = `Você é um algoritmo de triagem de um bot do Discord. Sua única função é determinar se a frase do usuário exige dados atualizados, fatos em tempo real, notícias, clima, lançamentos recentes, resultados ou tabelas de jogos atuais (especialmente eventos de ${anoAtual} ou pós-2023) que uma IA comum não saberia sem internet.
-Conversas normais, piadas, perguntas filosóficas, saudações ou perguntas sobre o contexto interno do chat NÃO precisam de pesquisa.
 
-Regra estrita de resposta:
-Se precisar de pesquisa externa, responda APENAS com a palavra SIM acompanhada do termo de busca ideal simplificado na mesma linha (Exemplo: SIM placar de futebol ontem).
-Se NÃO precisar de pesquisa, responda APENAS com a palavra NAO.
+    const promptTriagem = `Você é o cérebro de triagem de buscas de um bot do Discord. Sua função é ler a mensagem do usuário e decidir se o bot precisa pesquisar na internet para responder corretamente.
 
-Frase do usuário: "${textoUsuario}"`;
+PRECISA DE INTERNET: Resultados de futebol/esportes, placares, notícias recentes, previsão do tempo, dados factuais atualizados (após 2023), informações de lançamentos.
+NÃO PRECISA: Papo furado, saudações, piadas, opiniões pessoais, pedir conselhos.
+
+Se precisar pesquisar, responda EXATAMENTE neste formato: SIM | termo_de_busca_otimizado
+Se NÃO precisar pesquisar, responda APENAS a palavra: NAO
+
+EXEMPLOS:
+User: "quem ganhou o jogo do flamengo ontem?" -> SIM | resultado jogo flamengo ontem placar
+User: "quais foram os jogos da copa do mundo de ontem?" -> SIM | resultados placar jogos copa do mundo ontem
+User: "eai mano blz?" -> NAO
+User: "o que acha da vida?" -> NAO
+
+Mensagem atual do usuário: "${textoUsuario}"`;
 
     const triagemCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptTriagem }],
       model: "llama-3.1-8b-instant",
       temperature: 0.0,
-      max_tokens: 20,
+      max_tokens: 30,
     });
 
     const respostaTriagem =
       triagemCompletion.choices[0]?.message?.content?.trim() || "NAO";
 
     if (respostaTriagem.toUpperCase().startsWith("SIM")) {
-      const termoExtraido = respostaTriagem.substring(3).trim();
-      return {
-        devePesquisar: true,
-        termoBusca: termoExtraido.length > 0 ? termoExtraido : textoUsuario,
-      };
+      const partes = respostaTriagem.split("|");
+      const termoExtraido = partes.length > 1 ? partes[1].trim() : textoUsuario;
+      console.log(
+        `\x1b[35m[IA TRIAGEM] Decidiu que SIM. Busca otimizada gerada: "${termoExtraido}"\x1b[0m`,
+      );
+      return { devePesquisar: true, termoBusca: termoExtraido };
     }
+
+    console.log(
+      `\x1b[35m[IA TRIAGEM] Decidiu que NAO precisa de internet para isso.\x1b[0m`,
+    );
     return { devePesquisar: false, termoBusca: "" };
   } catch (err) {
+    console.log(
+      `\x1b[31m[IA TRIAGEM - ERRO] Falha ao consultar Groq para triagem.\x1b[0m`,
+    );
     return { devePesquisar: false, termoBusca: "" };
   }
 }
 
 // -----------------------------------------------------------
-// 🔍 BUSCA NA WEB
+// 🔍 SISTEMA DE LOGS DETALHADOS PARA A PESQUISA WEB
 // -----------------------------------------------------------
 function buscarNaWebNativo(query) {
   console.log(
@@ -183,7 +199,7 @@ function buscarNaWebNativo(query) {
           } catch (e) {}
 
           console.log(
-            `\x1b[33m[SISTEMA PESQUISA] API Oficial sem dados. Ativando Raspagem HTML...\x1b[0m`,
+            `\x1b[33m[SISTEMA PESQUISA] API Oficial sem dados diretos. Ativando fallback de Raspagem HTML...\x1b[0m`,
           );
           const urlHtml = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
           https
@@ -203,7 +219,7 @@ function buscarNaWebNativo(query) {
                     htmlData.length < 1000
                   ) {
                     console.log(
-                      `\x1b[31m[SISTEMA PESQUISA] DuckDuckGo bloqueou a raspagem (Captcha).\x1b[0m`,
+                      `\x1b[31m[SISTEMA PESQUISA - BLOQUEIO] DuckDuckGo barrou a raspagem HTML (Captcha detectado).\x1b[0m`,
                     );
                     return resolve("");
                   }
@@ -222,7 +238,7 @@ function buscarNaWebNativo(query) {
                     if (limpo.length > 15) resultados.push(limpo);
                   }
                   console.log(
-                    `\x1b[32m[SISTEMA PESQUISA] Raspagem HTML finalizada. ${resultados.length} trechos úteis.\x1b[0m`,
+                    `\x1b[32m[SISTEMA PESQUISA] Raspagem HTML finalizada. Encontrados ${resultados.length} trechos úteis.\x1b[0m`,
                   );
                   resolve(resultados.join(" | "));
                 });
@@ -257,7 +273,8 @@ async function gerarMensagemUnica(comandoInstrucao) {
 
 async function reconstruirContexto(channel, ignoreIds = []) {
   try {
-    const fetched = await channel.messages.fetch({ limit: 30 });
+    // Mantido o limite de 15 para poupar tokens
+    const fetched = await channel.messages.fetch({ limit: 15 });
     const mensagens = [];
     const lembreteRegexGlobal = /\[lembrete:\s*.*?\s*\|\s*.*?\]/gi;
 
@@ -285,7 +302,7 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// CHAMADA PRINCIPAL DA IA (CORRIGIDA)
+// CHAMADA PRINCIPAL DA IA (COM FALLBACK E TRIAGEM)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(
   idUsuario,
@@ -293,19 +310,39 @@ async function perguntarAoGroqAvancado(
   textoAtual,
   contextoHistorico,
 ) {
-  try {
-    const opcoesData = {
-      timeZone: "America/Sao_Paulo",
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    };
-    const dataHoraBrasil = new Date().toLocaleString("pt-BR", opcoesData);
+  let contextoWeb = "";
 
-    const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
+  // 1. Executa a avaliação cognitiva inteligente para ver se precisa de internet antes do loop principal
+  const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
+
+  if (analisePesquisa.devePesquisar) {
+    const dadosBusca = await buscarNaWebNativo(analisePesquisa.termoBusca);
+    if (dadosBusca && dadosBusca.length > 5) {
+      contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder com precisão factual absoluta, mas finja que já sabia de cabeça.`;
+    }
+  }
+
+  // Mantida a lista de modelos de Fallback Automático anti-queda
+  const modelosParaTentar = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "llama3-8b-8192",
+  ];
+
+  for (const modeloAtual of modelosParaTentar) {
+    try {
+      const opcoesData = {
+        timeZone: "America/Sao_Paulo",
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      };
+      const dataHoraBrasil = new Date().toLocaleString("pt-BR", opcoesData);
+
+      const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
 1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase, linha ou mensagem com vírgula (,).
 2. ESPELHAMENTO: Leia o histórico e aja naturalmente com o usuário.
 3. INTELIGÊNCIA EMOCIONAL: Amigável com quem é legal, frio/curto com quem é chato.
@@ -316,45 +353,42 @@ async function perguntarAoGroqAvancado(
 8. SISTEMA DE LEMBRETE (REGRA RESTRITA): APENAS gere um lembrete se o usuário pedir EXPLICITAMENTE na MENSAGEM ATUAL (ex: "me lembra de X"). Ignore coisas do passado. Quando ordenado agora, coloque no final da sua resposta a tag exata em letras minúsculas: [lembrete: minutos | mensagem_customizada].
 REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 2, 5, 60). Em 'mensagem_customizada', crie uma frase de alarme 100% ÚNICA e personalizada para o usuário. Essa frase DEVE conter obrigatoriamente a palavra 'lembrar' ou 'lembrete'. Não confirme o lembrete por extenso no seu texto principal; responda apenas concordando normalmente (ex: "beleza", "deixa comigo") e coloque a tag colada no final do seu texto.`;
 
-    const sistemaPersonalidade =
-      (config.personalidade || "Você é um humano jovem no discord.") +
-      instrucoesDisfarce;
+      const sistemaPersonalidade =
+        (config.personalidade || "Você é um humano jovem no discord.") +
+        instrucoesDisfarce;
 
-    let contextoWeb = "";
+      const mensagensParaEnviar = [
+        { role: "system", content: `${sistemaPersonalidade}${contextoWeb}` },
+      ];
+      contextoHistorico.forEach((msg) => mensagensParaEnviar.push(msg));
+      mensagensParaEnviar.push({
+        role: "user",
+        content: `[${nomeUsuario}]: ${textoAtual}`,
+      });
 
-    // Triage Inteligente
-    const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
-    if (analisePesquisa.devePesquisar) {
-      const dadosBusca = await buscarNaWebNativo(analisePesquisa.termoBusca);
-      if (dadosBusca && dadosBusca.length > 5) {
-        contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder com precisão factual absoluta, mas finja que já sabia de cabeça.`;
-      }
+      console.log(
+        `\x1b[35m[LOG API] Fazendo chamada principal usando o modelo: ${modeloAtual}...\x1b[0m`,
+      );
+
+      const chatCompletion = await groq.chat.completions.create({
+        messages: mensagensParaEnviar,
+        model: modeloAtual,
+        temperature: 0.35,
+      });
+
+      return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
+    } catch (err) {
+      console.log(
+        `\x1b[33m[LOG AVISO] Modelo ${modeloAtual} bateu limite/erro. Tentando modelo reserva... Erro: ${err.message}\x1b[0m`,
+      );
     }
-
-    const mensagensParaEnviar = [
-      { role: "system", content: `${sistemaPersonalidade}${contextoWeb}` },
-    ];
-
-    contextoHistorico.forEach((msg) => mensagensParaEnviar.push(msg));
-
-    mensagensParaEnviar.push({
-      role: "user",
-      content: `[${nomeUsuario}]: ${textoAtual}`,
-    });
-
-    const chatCompletion = await groq.chat.completions.create({
-      messages: mensagensParaEnviar,
-      model: "llama-3.1-8b-instant",
-      temperature: 0.35,
-    });
-
-    return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
-  } catch (err) {
-    console.log(
-      `\x1b[31m[LOG CRÍTICO ERRO] Groq rejeitou a requisição: ${err.message}\x1b[0m`,
-    );
-    return "foi mal, deu teto preto aqui na api kkk perai";
   }
+
+  // Se TODOS os modelos falharem catastroficamente
+  console.log(
+    `\x1b[31m[LOG CRÍTICO] Todos os modelos da Groq falharam ou estão sem tokens.\x1b[0m`,
+  );
+  return "foi mal, deu teto preto aqui na api kkk perai";
 }
 
 // -----------------------------------------------------------
@@ -369,7 +403,7 @@ client.once("ready", async () => {
     status: "online",
   });
 
-  // Verificador Cron de Lembretes
+  // Verificador Cron de Lembretes Monitorado
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -679,6 +713,7 @@ async function processarMensagemFinal(buffer) {
     message.channel,
     buffer.msgIds,
   );
+
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
     nomeUsuario,
@@ -687,7 +722,7 @@ async function processarMensagemFinal(buffer) {
   );
 
   // ================================================================
-  // SISTEMA DE CAPTURA E PARSING DE LEMBRETES (MONITORADO)
+  // SISTEMA CORRIGIDO DE CAPTURA E PARSING DE LEMBRETES
   // ================================================================
   const regexLembreteFlexivel =
     /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i;
@@ -711,10 +746,20 @@ async function processarMensagemFinal(buffer) {
         `\x1b[32m[SUCESSO GESTOR] Novo alarme agendado via chat: "${textoCustomizado}" para daqui a ${minutos}m.\x1b[0m`,
       );
 
+      // 1. Remove a tag oculta [lembrete: ...] do texto
       respostaIA = respostaIA.replace(regexLembreteFlexivel, "").trim();
       guardarLembretesNoDisco();
     }
   }
+
+  // 2. FILTRO DE LIMPEZA DE SEGURANÇA (Para evitar vazamento da IA no chat)
+  respostaIA = respostaIA.replace(
+    /lembrete:\s*\d+\s*(minutos|minuto|m|hora|horas|h|dia|dias|d)?(,\s*)?/gi,
+    "",
+  );
+  respostaIA = respostaIA.replace(/vou te lembrar de\s+[^,]+(,\s*)?/gi, "");
+  respostaIA = respostaIA.replace(/deixa comigo,\s*/gi, "deixa comigo ");
+  respostaIA = respostaIA.trim();
   // ================================================================
 
   let tempoDigitando = Math.floor(
