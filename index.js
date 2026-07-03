@@ -272,6 +272,9 @@ async function gerarMensagemUnica(comandoInstrucao) {
   }
 }
 
+// -----------------------------------------------------------
+// 💾 RECONSTRUÇÃO DE CONTEXTO COM FILTRO ANTI-LOOP
+// -----------------------------------------------------------
 async function reconstruirContexto(channel, ignoreIds = []) {
   try {
     const fetched = await channel.messages.fetch({ limit: 15 });
@@ -285,6 +288,15 @@ async function reconstruirContexto(channel, ignoreIds = []) {
       conteudo = conteudo.replace(lembreteRegexGlobal, "").trim();
 
       if (conteudo.length === 0) return;
+
+      // FILTRO DE SEGURANÇA: Se o bot vazou regras ou bugou no chat antes, ignora para não criar loop
+      if (msg.author.id === client.user.id) {
+        const txtMin = conteudo.toLowerCase();
+        if (txtMin.includes("regras de") || txtMin.includes("comportamento") || txtMin.includes("formato:") || txtMin.includes("lembretes:")) {
+          console.log(`\x1b[33m[SEGURANÇA] Mensagem antiga de bug do bot ignorada no histórico para evitar loop.\x1b[0m`);
+          return;
+        }
+      }
 
       const nome = msg.member ? msg.member.displayName : msg.author.username;
       mensagens.push({
@@ -302,7 +314,7 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// CHAMADA PRINCIPAL DA IA (COM TRIAGEM, FALLBACK E ROTAS SEGURAS)
+// CHAMADA PRINCIPAL DA IA (COM PROMPT REESTRUTURADO)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(
   idUsuario,
@@ -311,28 +323,23 @@ async function perguntarAoGroqAvancado(
   contextoHistorico,
 ) {
   let contextoWeb = "";
-
-  // 1. Executa a avaliação cognitiva inteligente
+    
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
-
+    
   if (analisePesquisa.devePesquisar) {
     const dadosBusca = await buscarNaWebNativo(analisePesquisa.termoBusca);
     if (dadosBusca && dadosBusca.length > 5) {
       contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder com precisão factual absoluta, mas finja que já sabia de cabeça.`;
     } else {
-      // 2. Protocolo de falha da Internet
-      console.log(
-        `\x1b[31m[LOG IA] Avisando o modelo que a busca na web falhou ou retornou vazia.\x1b[0m`,
-      );
+      console.log(`\x1b[31m[LOG IA] Avisando o modelo que a busca na web falhou ou retornou vazia.\x1b[0m`);
       contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${analisePesquisa.termoBusca}", mas o sistema de busca falhou, caiu ou retornou zero resultados. Seja sincero com o usuário de forma natural e informal: diga que você tentou dar uma olhada na internet para ver os resultados/informações pra ele, mas a pesquisa bugou ou não trouxe dados.\n</AVISO_DE_SISTEMA>`;
     }
   }
 
-  // 3. Sistema de Fallback Automático anti-queda
   const modelosParaTentar = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
-    "llama3-8b-8192",
+    "llama3-8b-8192"
   ];
 
   for (const modeloAtual of modelosParaTentar) {
@@ -348,19 +355,22 @@ async function perguntarAoGroqAvancado(
       };
       const dataHoraBrasil = new Date().toLocaleString("pt-BR", opcoesData);
 
-      // REGRA AGRESSIVA ANTI-ALUCINAÇÃO DE LEMBRETES APLICADA AQUI
-      const instrucoesDisfarce = `\n\nREGRAS DE COMPORTAMENTO HUMANIZADO (OBRIGATÓRIO):
-1. FORMATO: Escreva TUDO sempre em minúsculo. Nenhuma pontuação formal (proibido usar . ou ! ou ? no final das frases). NUNCA termine uma frase, linha ou mensagem com vírgula (,).
-2. ESPELHAMENTO: Leia o histórico e aja naturalmente com o usuário.
-3. INTELIGÊNCIA EMOCIONAL: Amigável com quem é legal, frio/curto com quem é chato.
-4. EMOJIS (QUASE NUNCA USE): Use de forma MUITO rara. Máximo UM no final.
-5. Variação de risada: alterne para "ksksk", "ashuahsu", "mds kkkkk".
-6. NUNCA use a tag azul <@ID>. Chame o usuário diretamente pelo nome.
-7. TEMPO E DATA: A data e o horário atual no Brasil agora são: ${dataHoraBrasil}.
-8. 🚨 SISTEMA DE LEMBRETES (PERIGO - REGRA ABSOLUTA):
-- VOCÊ É ESTRITAMENTE PROIBIDO DE CRIAR LEMBRETES SE O USUÁRIO NÃO PEDIR NESTA MENSAGEM.
-- NUNCA invente ou crie um lembrete no meio da conversa ou por conta própria. Se o usuário não digitar explicitamente coisas como "me lembra de", "avisa daqui a", você NÃO PODE usar a tag de lembrete de jeito nenhum.
-- APENAS SE ELE PEDIR EXPLICITAMENTE, coloque a tag no final do texto: [lembrete: X | mensagem_de_alarme] (X deve ser APENAS o número de minutos, ex: 5, 10). Não confirme o tempo no texto normal.`;
+      // PROMPT LIMPO E ESTRUTURADO (ESTILO XML - EVITA CONFUSÃO DA IA)
+      const instrucoesDisfarce = `\n\n
+<REGRAS_DE_ESTILO>
+- Formato: tudo sempre em minúsculo, sem nenhuma pontuação formal no fim das frases (. ! ?). Nunca termine mensagens com vírgula (,).
+- Espelhamento: aja naturalmente de acordo com o tom do histórico.
+- Risadas: mude entre "ksksk", "ashuahsu", "mds kkkkk".
+- Emojis: use muito raramente, no máximo um no final se combinar muito.
+- Menções: nunca use a tag azul <@ID>. Chame a pessoa pelo nome normal.
+- Tempo: a data/hora atualizada no Brasil agora é ${dataHoraBrasil}.
+</REGRAS_DE_ESTILO>
+
+<SISTEMA_DE_LEMBRETES>
+- Você só pode criar um lembrete se o usuário pedir explicitamente na última mensagem dele (ex: "me lembra de algo", "avisa daqui a pouco").
+- Se ele não pediu nada, ignore completamente este sistema. Não invente lembretes no meio do papo furado.
+- Se ele pediu, coloque apenas no final do seu texto a tag: [lembrete: minutos | mensagem] (substitua minutos por um número inteiro puro, ex: 10, 60).
+</SISTEMA_DE_LEMBRETES>`;
 
       const sistemaPersonalidade =
         (config.personalidade || "Você é um humano jovem no discord.") +
@@ -378,11 +388,11 @@ async function perguntarAoGroqAvancado(
       console.log(
         `\x1b[35m[LOG API] Fazendo chamada principal usando o modelo: ${modeloAtual}...\x1b[0m`,
       );
-
+      
       const chatCompletion = await groq.chat.completions.create({
         messages: mensagensParaEnviar,
         model: modeloAtual,
-        temperature: 0.35, // Temperatura baixa já ajuda a IA a não sair muito do script
+        temperature: 0.4,
       });
 
       return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
@@ -393,9 +403,7 @@ async function perguntarAoGroqAvancado(
     }
   }
 
-  console.log(
-    `\x1b[31m[LOG CRÍTICO] Todos os modelos da Groq falharam ou estão sem tokens.\x1b[0m`,
-  );
+  console.log(`\x1b[31m[LOG CRÍTICO] Todos os modelos da Groq falharam ou estão sem tokens.\x1b[0m`);
   return "foi mal, deu teto preto aqui na api kkk perai";
 }
 
