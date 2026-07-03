@@ -292,8 +292,15 @@ async function reconstruirContexto(channel, ignoreIds = []) {
       // FILTRO DE SEGURANÇA: Se o bot vazou regras ou bugou no chat antes, ignora para não criar loop
       if (msg.author.id === client.user.id) {
         const txtMin = conteudo.toLowerCase();
-        if (txtMin.includes("regras de") || txtMin.includes("comportamento") || txtMin.includes("formato:") || txtMin.includes("lembretes:")) {
-          console.log(`\x1b[33m[SEGURANÇA] Mensagem antiga de bug do bot ignorada no histórico para evitar loop.\x1b[0m`);
+        if (
+          txtMin.includes("regras de") ||
+          txtMin.includes("comportamento") ||
+          txtMin.includes("formato:") ||
+          txtMin.includes("lembretes:")
+        ) {
+          console.log(
+            `\x1b[33m[SEGURANÇA] Mensagem antiga de bug do bot ignorada no histórico para evitar loop.\x1b[0m`,
+          );
           return;
         }
       }
@@ -314,7 +321,7 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// CHAMADA PRINCIPAL DA IA (COM PROMPT REESTRUTURADO)
+// CHAMADA PRINCIPAL DA IA (COM TRATAMENTO DE BUSCA E BLINDAGEM)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(
   idUsuario,
@@ -323,23 +330,37 @@ async function perguntarAoGroqAvancado(
   contextoHistorico,
 ) {
   let contextoWeb = "";
-    
+
+  // 1. Executa a avaliação cognitiva inteligente
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
-    
+
   if (analisePesquisa.devePesquisar) {
-    const dadosBusca = await buscarNaWebNativo(analisePesquisa.termoBusca);
+    // Sanitização do termo de busca: remove gírias de chat e limpa expressões temporais comuns
+    let termoSanitizado = analisePesquisa.termoBusca
+      .toLowerCase()
+      .replace(/\banti\s*ontem\b/g, "anteontem")
+      .replace(/\bce\b/g, "você")
+      .replace(/\bagr\b/g, "agora");
+
+    console.log(
+      `\x1b[36m[SISTEMA PESQUISA] Termo original: "${analisePesquisa.termoBusca}" -> Sanitizado para: "${termoSanitizado}"\x1b[0m`,
+    );
+
+    const dadosBusca = await buscarNaWebNativo(termoSanitizado);
     if (dadosBusca && dadosBusca.length > 5) {
       contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder com precisão factual absoluta, mas finja que já sabia de cabeça.`;
     } else {
-      console.log(`\x1b[31m[LOG IA] Avisando o modelo que a busca na web falhou ou retornou vazia.\x1b[0m`);
-      contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${analisePesquisa.termoBusca}", mas o sistema de busca falhou, caiu ou retornou zero resultados. Seja sincero com o usuário de forma natural e informal: diga que você tentou dar uma olhada na internet para ver os resultados/informações pra ele, mas a pesquisa bugou ou não trouxe dados.\n</AVISO_DE_SISTEMA>`;
+      console.log(
+        `\x1b[31m[LOG IA] Avisando o modelo que a busca na web falhou ou retornou vazia.\x1b[0m`,
+      );
+      contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${termoSanitizado}", mas o sistema de busca falhou ou retornou zero resultados. Seja sincero de forma natural e informal: diga que deu uma olhada rápida na internet para ver se achava mas acabou não encontrando dados precisos sobre isso.\n</AVISO_DE_SISTEMA>`;
     }
   }
 
   const modelosParaTentar = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
-    "llama3-8b-8192"
+    "llama3-8b-8192",
   ];
 
   for (const modeloAtual of modelosParaTentar) {
@@ -355,7 +376,7 @@ async function perguntarAoGroqAvancado(
       };
       const dataHoraBrasil = new Date().toLocaleString("pt-BR", opcoesData);
 
-      // PROMPT LIMPO E ESTRUTURADO (ESTILO XML - EVITA CONFUSÃO DA IA)
+      // PROMPT REESTRUTURADO EM BLOCOS DE CONTEXTO SEPARADOS
       const instrucoesDisfarce = `\n\n
 <REGRAS_DE_ESTILO>
 - Formato: tudo sempre em minúsculo, sem nenhuma pontuação formal no fim das frases (. ! ?). Nunca termine mensagens com vírgula (,).
@@ -366,11 +387,12 @@ async function perguntarAoGroqAvancado(
 - Tempo: a data/hora atualizada no Brasil agora é ${dataHoraBrasil}.
 </REGRAS_DE_ESTILO>
 
-<SISTEMA_DE_LEMBRETES>
-- Você só pode criar um lembrete se o usuário pedir explicitamente na última mensagem dele (ex: "me lembra de algo", "avisa daqui a pouco").
-- Se ele não pediu nada, ignore completamente este sistema. Não invente lembretes no meio do papo furado.
-- Se ele pediu, coloque apenas no final do seu texto a tag: [lembrete: minutos | mensagem] (substitua minutos por um número inteiro puro, ex: 10, 60).
-</SISTEMA_DE_LEMBRETES>`;
+<SISTEMA_DE_LEMBRETES_RESTRITO>
+- Você é um modelo de linguagem e está PROIBIDO de gerar a tag "[lembrete:...]" por iniciativa própria.
+- Você SÓ DEVE gerar a tag se o usuário no prompt atual pedir explicitamente por uma ação de tempo futuro (ex: "me lembra de", "me avise em", "marca um alarme").
+- Se o usuário estiver apenas conversando, fazendo perguntas cotidianas ou perguntas sobre pesquisas da internet, IGNORE COMPLETAMENTE a existência desse sistema e nunca escreva a palavra "lembrete" entre colchetes.
+- Formato obrigatório da tag (APENAS se solicitado): [lembrete: minutos_inteiros | mensagem_do_alarme]
+</SISTEMA_DE_LEMBRETES_RESTRITO>`;
 
       const sistemaPersonalidade =
         (config.personalidade || "Você é um humano jovem no discord.") +
@@ -388,11 +410,11 @@ async function perguntarAoGroqAvancado(
       console.log(
         `\x1b[35m[LOG API] Fazendo chamada principal usando o modelo: ${modeloAtual}...\x1b[0m`,
       );
-      
+
       const chatCompletion = await groq.chat.completions.create({
         messages: mensagensParaEnviar,
         model: modeloAtual,
-        temperature: 0.4,
+        temperature: 0.3, // Reduzido ligeiramente para torná-lo mais determinístico e obediente
       });
 
       return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
@@ -403,7 +425,9 @@ async function perguntarAoGroqAvancado(
     }
   }
 
-  console.log(`\x1b[31m[LOG CRÍTICO] Todos os modelos da Groq falharam ou estão sem tokens.\x1b[0m`);
+  console.log(
+    `\x1b[31m[LOG CRÍTICO] Todos os modelos da Groq falharam.\x1b[0m`,
+  );
   return "foi mal, deu teto preto aqui na api kkk perai";
 }
 
