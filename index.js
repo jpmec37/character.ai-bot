@@ -347,14 +347,17 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
     const mensagensParaEnviar = [
       { role: "system", content: `${sistemaPersonalidade}${contextoWeb}` },
     ];
+
     contextoHistorico.forEach((msg) => mensagensParaEnviar.push(msg));
+
     mensagensParaEnviar.push({
       role: "user",
       content: `[${nomeUsuario}]: ${textoAtual}`,
     });
 
+    // CORREÇÃO FEITA AQUI: Alterado de 'messagesParaEnviar' para 'mensagensParaEnviar'
     const chatCompletion = await groq.chat.completions.create({
-      messages: messagesParaEnviar,
+      messages: mensagensParaEnviar,
       model: "llama-3.1-8b-instant",
       temperature: 0.35,
     });
