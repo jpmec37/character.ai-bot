@@ -28,7 +28,7 @@ const PORT = process.env.PORT || 3000;
 http
   .createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Himmel versão self-bot - Sistema de Lembretes Blindado com Logs!");
+    res.end("Himmel versão self-bot - Sistema Operacional Online!");
   })
   .listen(PORT, () => {
     console.log(
@@ -70,18 +70,18 @@ const client = new Client({
 });
 
 // -----------------------------------------------------------
-// 💾 GESTOR DE LEMBRETES PERSISTENTES (LOGS DE DISCO)
+// 💾 GESTOR DE LEMBRETES PERSISTENTES
 // -----------------------------------------------------------
 let bancoLembretes = [];
 if (fs.existsSync("./lembretes.json")) {
   try {
     bancoLembretes = JSON.parse(fs.readFileSync("./lembretes.json", "utf-8"));
     console.log(
-      `\x1b[36m[BANCO DADOS] Carregados ${bancoLembretes.length} lembretes ativos do arquivo JSON.\x1b[0m`,
+      `\x1b[34m[LOG GESTOR] Carregados ${bancoLembretes.length} lembretes ativos do disco.\x1b[0m`,
     );
   } catch (e) {
     console.log(
-      `\x1b[31m[BANCO DADOS - ERRO] Arquivo de lembretes corrompido, iniciando banco limpo.\x1b[0m`,
+      `\x1b[31m[LOG ERRO DISCO] Arquivo de lembretes corrompido, iniciando limpo.\x1b[0m`,
     );
     bancoLembretes = [];
   }
@@ -95,11 +95,11 @@ function guardarLembretesNoDisco() {
       "utf-8",
     );
     console.log(
-      `\x1b[36m[BANCO DADOS] Arquivo 'lembretes.json' atualizado com sucesso no disco.\x1b[0m`,
+      `\x1b[36m[LOG DISCO] Banco de lembretes atualizado com sucesso.\x1b[0m`,
     );
   } catch (err) {
     console.log(
-      `\x1b[31m[BANCO DADOS - ERRO] Falha ao salvar arquivo JSON: ${err.message}\x1b[0m`,
+      `\x1b[31m[LOG ERRO DISCO] Falha ao salvar arquivo JSON: ${err.message}\x1b[0m`,
     );
   }
 }
@@ -121,12 +121,11 @@ if (fs.existsSync("./commands")) {
 }
 
 // -----------------------------------------------------------
-// 🧠 ALGORITMO DE IDENTIFICAÇÃO DE NECESSIDADE DE PESQUISA (IA TRIAGEM)
+// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (SUBSTITUI PALAVRAS-CHAVE)
 // -----------------------------------------------------------
 async function avaliarNecessidadeDePesquisa(textoUsuario) {
   try {
-    const anoAtual = new Date().getFullYear(); // Dinâmico para acompanhar o tempo atual (2026)
-
+    const anoAtual = new Date().getFullYear();
     const promptTriagem = `Você é um algoritmo de triagem de um bot do Discord. Sua única função é determinar se a frase do usuário exige dados atualizados, fatos em tempo real, notícias, clima, lançamentos recentes, resultados ou tabelas de jogos atuais (especialmente eventos de ${anoAtual} ou pós-2023) que uma IA comum não saberia sem internet.
 Conversas normais, piadas, perguntas filosóficas, saudações ou perguntas sobre o contexto interno do chat NÃO precisam de pesquisa.
 
@@ -139,7 +138,7 @@ Frase do usuário: "${textoUsuario}"`;
     const triagemCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptTriagem }],
       model: "llama-3.1-8b-instant",
-      temperature: 0.0, // Temperatura zero para precisão analítica e máxima velocidade
+      temperature: 0.0,
       max_tokens: 20,
     });
 
@@ -147,23 +146,20 @@ Frase do usuário: "${textoUsuario}"`;
       triagemCompletion.choices[0]?.message?.content?.trim() || "NAO";
 
     if (respostaTriagem.toUpperCase().startsWith("SIM")) {
-      // Extrai o termo de busca que a IA sugeriu após a palavra SIM
       const termoExtraido = respostaTriagem.substring(3).trim();
       return {
         devePesquisar: true,
         termoBusca: termoExtraido.length > 0 ? termoExtraido : textoUsuario,
       };
     }
-
     return { devePesquisar: false, termoBusca: "" };
   } catch (err) {
-    // Se a API falhar na triagem, o bot usa o modo offline preventivo para não quebrar o fluxo
     return { devePesquisar: false, termoBusca: "" };
   }
 }
 
 // -----------------------------------------------------------
-// 🔍 SISTEMA DE LOGS DETALHADOS PARA A PESQUISA WEB
+// 🔍 BUSCA NA WEB
 // -----------------------------------------------------------
 function buscarNaWebNativo(query) {
   console.log(
@@ -180,18 +176,14 @@ function buscarNaWebNativo(query) {
             const json = JSON.parse(data);
             if (json.AbstractText) {
               console.log(
-                `\x1b[32m[SISTEMA PESQUISA] Resposta obtida via API Oficial (AbstractText).\x1b[0m`,
+                `\x1b[32m[SISTEMA PESQUISA] Resposta obtida via API Oficial.\x1b[0m`,
               );
               return resolve(`Resumo: ${json.AbstractText}`);
             }
-          } catch (e) {
-            console.log(
-              `\x1b[31m[SISTEMA PESQUISA - ERRO] Falha ao ler JSON da API oficial.\x1b[0m`,
-            );
-          }
+          } catch (e) {}
 
           console.log(
-            `\x1b[33m[SISTEMA PESQUISA] API Oficial sem dados diretos. Ativando fallback de Raspagem HTML...\x1b[0m`,
+            `\x1b[33m[SISTEMA PESQUISA] API Oficial sem dados. Ativando Raspagem HTML...\x1b[0m`,
           );
           const urlHtml = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
           https
@@ -211,7 +203,7 @@ function buscarNaWebNativo(query) {
                     htmlData.length < 1000
                   ) {
                     console.log(
-                      `\x1b[31m[SISTEMA PESQUISA - BLOQUEIO] DuckDuckGo barrou a raspagem HTML (Captcha detectado).\x1b[0m`,
+                      `\x1b[31m[SISTEMA PESQUISA] DuckDuckGo bloqueou a raspagem (Captcha).\x1b[0m`,
                     );
                     return resolve("");
                   }
@@ -230,32 +222,25 @@ function buscarNaWebNativo(query) {
                     if (limpo.length > 15) resultados.push(limpo);
                   }
                   console.log(
-                    `\x1b[32m[SISTEMA PESQUISA] Raspagem HTML finalizada. Encontrados ${resultados.length} trechos úteis.\x1b[0m`,
+                    `\x1b[32m[SISTEMA PESQUISA] Raspagem HTML finalizada. ${resultados.length} trechos úteis.\x1b[0m`,
                   );
                   resolve(resultados.join(" | "));
                 });
               },
             )
-            .on("error", (err) => {
-              console.log(
-                `\x1b[31m[SISTEMA PESQUISA - ERRO] Falha na requisição de raspagem HTML: ${err.message}\x1b[0m`,
-              );
-              resolve("");
-            });
+            .on("error", () => resolve(""));
         });
       })
-      .on("error", (err) => {
-        console.log(
-          `\x1b[31m[SISTEMA PESQUISA - ERRO] Falha na requisição da API Oficial: ${err.message}\x1b[0m`,
-        );
-        resolve("");
-      });
+      .on("error", () => resolve(""));
   });
 }
 
+// -----------------------------------------------------------
+// GERAÇÃO DE TEXTOS MENORES DA IA
+// -----------------------------------------------------------
 async function gerarMensagemUnica(comandoInstrucao) {
   try {
-    const sistemaBase = `Escreva uma resposta corta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
+    const sistemaBase = `Escreva uma resposta curta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: sistemaBase }],
       model: "llama-3.1-8b-instant",
@@ -299,6 +284,9 @@ async function reconstruirContexto(channel, ignoreIds = []) {
   }
 }
 
+// -----------------------------------------------------------
+// CHAMADA PRINCIPAL DA IA (CORRIGIDA)
+// -----------------------------------------------------------
 async function perguntarAoGroqAvancado(
   idUsuario,
   nomeUsuario,
@@ -334,9 +322,8 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
 
     let contextoWeb = "";
 
-    // Executa a avaliação cognitiva inteligente para ver se precisa de internet
+    // Triage Inteligente
     const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
-
     if (analisePesquisa.devePesquisar) {
       const dadosBusca = await buscarNaWebNativo(analisePesquisa.termoBusca);
       if (dadosBusca && dadosBusca.length > 5) {
@@ -355,7 +342,6 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
       content: `[${nomeUsuario}]: ${textoAtual}`,
     });
 
-    // CORREÇÃO FEITA AQUI: Alterado de 'messagesParaEnviar' para 'mensagensParaEnviar'
     const chatCompletion = await groq.chat.completions.create({
       messages: mensagensParaEnviar,
       model: "llama-3.1-8b-instant",
@@ -372,7 +358,7 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
 }
 
 // -----------------------------------------------------------
-// EVENTOS DE START E ROTINAS (CRON DE LEMBRETES MONITORADO)
+// EVENTOS DE START E ROTINAS
 // -----------------------------------------------------------
 client.once("ready", async () => {
   console.log(
@@ -383,7 +369,7 @@ client.once("ready", async () => {
     status: "online",
   });
 
-  // Verificador Cron de Lembretes Monitorado
+  // Verificador Cron de Lembretes
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -393,7 +379,7 @@ client.once("ready", async () => {
 
       if (agora >= lembrete.timestampDisparo) {
         console.log(
-          `\x1b[34m[SISTEMA LEMBRETE] Cron detectou alarme expirado! Disparando para o usuário ID: ${lembrete.userId}\x1b[0m`,
+          `\x1b[34m[LOG LEMBRETE] Disparando alarme agendado do usuário ${lembrete.userId}\x1b[0m`,
         );
         try {
           const destino = lembrete.isDM
@@ -403,25 +389,15 @@ client.once("ready", async () => {
           if (destino) {
             if (lembrete.isDM) {
               await destino.send(lembrete.textoAlarme);
-              console.log(
-                `\x1b[32m[SISTEMA LEMBRETE] Mensagem entregue com sucesso via DM direta.\x1b[0m`,
-              );
             } else {
               await destino.send(
                 `<@${lembrete.userId}> ${lembrete.textoAlarme}`,
               );
-              console.log(
-                `\x1b[32m[SISTEMA LEMBRETE] Mensagem entregue com sucesso no Canal ID: ${lembrete.channelId}.\x1b[0m`,
-              );
             }
-          } else {
-            console.log(
-              `\x1b[31m[SISTEMA LEMBRETE - ERRO] Destino não encontrado ou inacessível.\x1b[0m`,
-            );
           }
         } catch (err) {
           console.log(
-            `\x1b[31m[SISTEMA LEMBRETE - ERRO DISCORD] Falha ao entregar lembrete (DM fechada ou sem permissão): ${err.message}\x1b[0m`,
+            `\x1b[31m[LOG ERRO DISCORD] Erro ao entregar lembrete: ${err.message}\x1b[0m`,
           );
         }
         bancoLembretes.splice(i, 1);
@@ -732,15 +708,11 @@ async function processarMensagemFinal(buffer) {
       });
 
       console.log(
-        `\x1b[32m[SISTEMA LEMBRETE] Novo alarme registrado! Usuário: ${nomeUsuario} (${message.author.id}) | Tempo: ${minutos}m | Alarme: "${textoCustomizado}"\x1b[0m`,
+        `\x1b[32m[SUCESSO GESTOR] Novo alarme agendado via chat: "${textoCustomizado}" para daqui a ${minutos}m.\x1b[0m`,
       );
 
       respostaIA = respostaIA.replace(regexLembreteFlexivel, "").trim();
       guardarLembretesNoDisco();
-    } else {
-      console.log(
-        `\x1b[31m[SISTEMA LEMBRETE - FALHA] IA tentou gerar uma tag de lembrete mas os minutos eram inválidos: "${matchLembrete[1]}"\x1b[0m`,
-      );
     }
   }
   // ================================================================
@@ -786,9 +758,7 @@ async function processarMensagemFinal(buffer) {
       }
       await message.channel.send(textoFinal);
     } catch (erroDeEnvio) {
-      console.log(
-        `\x1b[31m[CHAT - ERRO ENVIO] Falha ao enviar mensagem fracionada no Discord.\x1b[0m`,
-      );
+      await message.channel.send(textoFinal).catch(() => {});
     }
   }
 }
@@ -799,11 +769,7 @@ client.on("interactionCreate", async (interaction) => {
     if (!slashCommand) return;
     try {
       await slashCommand.execute(client, interaction, null);
-    } catch (err) {
-      console.log(
-        `\x1b[31m[SLASH COMMAND - ERRO] Falha ao executar /${interaction.commandName}: ${err.message}\x1b[0m`,
-      );
-    }
+    } catch (err) {}
   }
 });
 
