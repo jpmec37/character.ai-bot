@@ -10,25 +10,27 @@ const https = require("https");
 // SISTEMA DE PROTEÇÃO CONTRA QUEDAS E ERROS INESPERADOS (ANTI-CRASH)
 // ================================================================
 process.on("unhandledRejection", (reason, promise) => {
-  console.error("\x1b[31m[ERRO CRÍTICO - Unhandled Rejection]:\x1b[0m", reason);
+  console.log(
+    `\x1b[31m[SISTEMA ANTI-QUEDA] Rejeição não tratada ignorada:\x1b[0m`,
+    reason,
+  );
 });
-process.on("uncaughtException", (err, origin) => {
-  console.error(
-    "\x1b[31m[ERRO CRÍTICO - Uncaught Exception]:\x1b[0m",
+process.on("uncaughtException", (err) => {
+  console.log(
+    `\x1b[31m[SISTEMA ANTI-QUEDA] Exceção não tratada capturada:\x1b[0m`,
     err,
-    "Origem:",
-    origin,
   );
 });
 
 // ================================================================
-// MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER
+// MINI SERVIDOR WEB PARA EVITAR O REPOUSO DA RENDER E UPTIMEROBOT
 // ================================================================
 const PORT = process.env.PORT || 3000;
 http
   .createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Himmel versão self-bot - Sistema Operacional Online!");
+    // TEXTO ORIGINAL MANTIDO PARA O UPTIMEROBOT NÃO APITAR FALSO POSITIVO
+    res.end("Himmel versão self-bot - Sistema de Lembretes Blindado com Logs!");
   })
   .listen(PORT, () => {
     console.log(
@@ -121,7 +123,7 @@ if (fs.existsSync("./commands")) {
 }
 
 // -----------------------------------------------------------
-// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (SEM PALAVRAS-CHAVE)
+// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (CÉREBRO IA)
 // -----------------------------------------------------------
 async function avaliarNecessidadeDePesquisa(textoUsuario) {
   try {
@@ -139,7 +141,6 @@ EXEMPLOS:
 User: "quem ganhou o jogo do flamengo ontem?" -> SIM | resultado jogo flamengo ontem placar
 User: "quais foram os jogos da copa do mundo de ontem?" -> SIM | resultados placar jogos copa do mundo ontem
 User: "eai mano blz?" -> NAO
-User: "o que acha da vida?" -> NAO
 
 Mensagem atual do usuário: "${textoUsuario}"`;
 
@@ -163,7 +164,7 @@ Mensagem atual do usuário: "${textoUsuario}"`;
     }
 
     console.log(
-      `\x1b[35m[IA TRIAGEM] Decidiu que NAO precisa de internet para isso.\x1b[0m`,
+      `\x1b[35m[IA TRIAGEM] Decidiu que NAO precisa de internet.\x1b[0m`,
     );
     return { devePesquisar: false, termoBusca: "" };
   } catch (err) {
@@ -273,7 +274,6 @@ async function gerarMensagemUnica(comandoInstrucao) {
 
 async function reconstruirContexto(channel, ignoreIds = []) {
   try {
-    // Mantido o limite de 15 para poupar tokens
     const fetched = await channel.messages.fetch({ limit: 15 });
     const mensagens = [];
     const lembreteRegexGlobal = /\[lembrete:\s*.*?\s*\|\s*.*?\]/gi;
@@ -302,7 +302,7 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// CHAMADA PRINCIPAL DA IA (COM FALLBACK E TRIAGEM)
+// CHAMADA PRINCIPAL DA IA (COM TRIAGEM, FALLBACK E ROTAS SEGURAS)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(
   idUsuario,
@@ -312,17 +312,23 @@ async function perguntarAoGroqAvancado(
 ) {
   let contextoWeb = "";
 
-  // 1. Executa a avaliação cognitiva inteligente para ver se precisa de internet antes do loop principal
+  // 1. Executa a avaliação cognitiva inteligente
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
 
   if (analisePesquisa.devePesquisar) {
     const dadosBusca = await buscarNaWebNativo(analisePesquisa.termoBusca);
     if (dadosBusca && dadosBusca.length > 5) {
       contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder com precisão factual absoluta, mas finja que já sabia de cabeça.`;
+    } else {
+      // 2. Protocolo de falha da Internet
+      console.log(
+        `\x1b[31m[LOG IA] Avisando o modelo que a busca na web falhou ou retornou vazia.\x1b[0m`,
+      );
+      contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${analisePesquisa.termoBusca}", mas o sistema de busca falhou, caiu ou retornou zero resultados. Seja sincero com o usuário de forma natural e informal: diga que você tentou dar uma olhada na internet para ver os resultados/informações pra ele, mas a pesquisa bugou ou não trouxe dados.\n</AVISO_DE_SISTEMA>`;
     }
   }
 
-  // Mantida a lista de modelos de Fallback Automático anti-queda
+  // 3. Sistema de Fallback Automático anti-queda
   const modelosParaTentar = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
@@ -384,7 +390,6 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
     }
   }
 
-  // Se TODOS os modelos falharem catastroficamente
   console.log(
     `\x1b[31m[LOG CRÍTICO] Todos os modelos da Groq falharam ou estão sem tokens.\x1b[0m`,
   );
@@ -403,7 +408,7 @@ client.once("ready", async () => {
     status: "online",
   });
 
-  // Verificador Cron de Lembretes Monitorado
+  // Verificador Cron de Lembretes
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -713,7 +718,6 @@ async function processarMensagemFinal(buffer) {
     message.channel,
     buffer.msgIds,
   );
-
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
     nomeUsuario,
@@ -722,7 +726,7 @@ async function processarMensagemFinal(buffer) {
   );
 
   // ================================================================
-  // SISTEMA CORRIGIDO DE CAPTURA E PARSING DE LEMBRETES
+  // SISTEMA DE CAPTURA E PARSING DE LEMBRETES
   // ================================================================
   const regexLembreteFlexivel =
     /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i;
@@ -746,13 +750,12 @@ async function processarMensagemFinal(buffer) {
         `\x1b[32m[SUCESSO GESTOR] Novo alarme agendado via chat: "${textoCustomizado}" para daqui a ${minutos}m.\x1b[0m`,
       );
 
-      // 1. Remove a tag oculta [lembrete: ...] do texto
       respostaIA = respostaIA.replace(regexLembreteFlexivel, "").trim();
       guardarLembretesNoDisco();
     }
   }
 
-  // 2. FILTRO DE LIMPEZA DE SEGURANÇA (Para evitar vazamento da IA no chat)
+  // FILTRO DE LIMPEZA DE SEGURANÇA (Para evitar vazamento da IA no chat)
   respostaIA = respostaIA.replace(
     /lembrete:\s*\d+\s*(minutos|minuto|m|hora|horas|h|dia|dias|d)?(,\s*)?/gi,
     "",
@@ -760,6 +763,11 @@ async function processarMensagemFinal(buffer) {
   respostaIA = respostaIA.replace(/vou te lembrar de\s+[^,]+(,\s*)?/gi, "");
   respostaIA = respostaIA.replace(/deixa comigo,\s*/gi, "deixa comigo ");
   respostaIA = respostaIA.trim();
+
+  // ANTI-MENSAGEM VAZIA (Se a limpeza apagar tudo)
+  if (respostaIA.length === 0) {
+    respostaIA = "demorou, já deixei anotado aqui";
+  }
   // ================================================================
 
   let tempoDigitando = Math.floor(
