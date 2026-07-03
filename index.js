@@ -120,27 +120,46 @@ if (fs.existsSync("./commands")) {
   }
 }
 
-function precisaDeInternet(texto) {
-  const termosBusca = [
-    "pesquisa",
-    "busca",
-    "google",
-    "quem é",
-    "quem foi",
-    "o que é",
-    "noticia",
-    "sobre",
-    "onde fica",
-    "atual",
-    "hoje",
-    "placar",
-    "venceu",
-    "lançamento",
-    "preço",
-    "clima",
-    "tempo",
-  ];
-  return termosBusca.some((termo) => texto.toLowerCase().includes(termo));
+// -----------------------------------------------------------
+// 🧠 ALGORITMO DE IDENTIFICAÇÃO DE NECESSIDADE DE PESQUISA (IA TRIAGEM)
+// -----------------------------------------------------------
+async function avaliarNecessidadeDePesquisa(textoUsuario) {
+  try {
+    const anoAtual = new Date().getFullYear(); // Dinâmico para acompanhar o tempo atual (2026)
+
+    const promptTriagem = `Você é um algoritmo de triagem de um bot do Discord. Sua única função é determinar se a frase do usuário exige dados atualizados, fatos em tempo real, notícias, clima, lançamentos recentes, resultados ou tabelas de jogos atuais (especialmente eventos de ${anoAtual} ou pós-2023) que uma IA comum não saberia sem internet.
+Conversas normais, piadas, perguntas filosóficas, saudações ou perguntas sobre o contexto interno do chat NÃO precisam de pesquisa.
+
+Regra estrita de resposta:
+Se precisar de pesquisa externa, responda APENAS com a palavra SIM acompanhada do termo de busca ideal simplificado na mesma linha (Exemplo: SIM placar de futebol ontem).
+Se NÃO precisar de pesquisa, responda APENAS com a palavra NAO.
+
+Frase do usuário: "${textoUsuario}"`;
+
+    const triagemCompletion = await groq.chat.completions.create({
+      messages: [{ role: "user", content: promptTriagem }],
+      model: "llama-3.1-8b-instant",
+      temperature: 0.0, // Temperatura zero para precisão analítica e máxima velocidade
+      max_tokens: 20,
+    });
+
+    const respostaTriagem =
+      triagemCompletion.choices[0]?.message?.content?.trim() || "NAO";
+
+    if (respostaTriagem.toUpperCase().startsWith("SIM")) {
+      // Extrai o termo de busca que a IA sugeriu após a palavra SIM
+      const termoExtraido = respostaTriagem.substring(3).trim();
+      return {
+        devePesquisar: true,
+        termoBusca: termoExtraido.length > 0 ? termoExtraido : textoUsuario,
+      };
+    }
+
+    return { devePesquisar: false, termoBusca: "" };
+  } catch (err) {
+    // Se a API falhar na triagem, o bot usa o modo offline preventivo para não quebrar o fluxo
+    return { devePesquisar: false, termoBusca: "" };
+  }
 }
 
 // -----------------------------------------------------------
@@ -314,11 +333,14 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
       instrucoesDisfarce;
 
     let contextoWeb = "";
-    if (precisaDeInternet(textoAtual)) {
-      // LOG removido daqui para evitar poluição geral da IA, mantendo apenas dentro da função buscarNaWebNativo()
-      const dadosBusca = await buscarNaWebNativo(textoAtual);
+
+    // Executa a avaliação cognitiva inteligente para ver se precisa de internet
+    const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
+
+    if (analisePesquisa.devePesquisar) {
+      const dadosBusca = await buscarNaWebNativo(analisePesquisa.termoBusca);
       if (dadosBusca && dadosBusca.length > 5) {
-        contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder, mas minta que sabia de cabeça.`;
+        contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder com precisão factual absoluta, mas finja que já sabia de cabeça.`;
       }
     }
 
@@ -332,7 +354,7 @@ REGRA DE OURO DO LEMBRETE: Substitua 'minutos' por números inteiros puros (ex: 
     });
 
     const chatCompletion = await groq.chat.completions.create({
-      messages: mensagensParaEnviar,
+      messages: messagesParaEnviar,
       model: "llama-3.1-8b-instant",
       temperature: 0.35,
     });
@@ -686,7 +708,7 @@ async function processarMensagemFinal(buffer) {
   );
 
   // ================================================================
-  // SISTEMA CORRIGIDO DE CAPTURA E PARSING DE LEMBRETES (MONITORADO)
+  // SISTEMA DE CAPTURA E PARSING DE LEMBRETES (MONITORADO)
   // ================================================================
   const regexLembreteFlexivel =
     /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i;
