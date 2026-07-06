@@ -101,7 +101,7 @@ function guardarLembretesNoDisco() {
       "utf-8",
     );
     console.log(
-      `\x1b[36m[LOG DISCO] Banco de lembretes atualizado com sucesso.\x1b[0m`,
+      `\x1b[36m[LOG DISCO] Banco de lembretes updated com sucesso.\x1b[0m`,
     );
   } catch (err) {
     console.log(
@@ -394,6 +394,103 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
+// 🕵️‍♂️ VARREDURA ARQUEOLÓGICA COMPLETA (INDEXAÇÃO EM MASSA ATÉ O INÍCIO DO CHAT)
+// -----------------------------------------------------------
+async function indexarHistoricoCompleto(channel, userId, nomeUsuario) {
+  // Garante a compatibilidade e criação da nova estrutura do JSON
+  if (!bancoMemoria[userId] || Array.isArray(bancoMemoria[userId])) {
+    const fatosAntigos = Array.isArray(bancoMemoria[userId]) ? bancoMemoria[userId] : [];
+    bancoMemoria[userId] = { fatos: fatosAntigos, indexado: false };
+  }
+
+  // Se já foi indexado no passado, não faz absolutamente nada
+  if (bancoMemoria[userId].indexado) return;
+
+  console.log(`\x1b[33m[INDEXADOR] ${nomeUsuario} não está indexado. Iniciando varredura COMPLETA até o início do chat...\x1b[0m`);
+
+  let ultimoId = null;
+  let textosDoUsuario = [];
+  let totalMensagensLidas = 0;
+
+  // Loop infinito controlado: baixa de 100 em 100 até o chat acabar
+  while (true) {
+    try {
+      const opcoesFetch = { limit: 100 };
+      if (ultimoId) opcoesFetch.before = ultimoId;
+
+      const bloco = await channel.messages.fetch(opcoesFetch);
+      if (!bloco || bloco.size === 0) break; // Chegou ao fim do histórico
+
+      totalMensagensLidas += bloco.size;
+
+      // Filtra apenas as mensagens que o próprio usuário enviou
+      const msgsUsuario = bloco.filter(m => m.author.id === userId && m.content.trim().length > 0);
+      msgsUsuario.forEach(m => textosDoUsuario.push(m.content));
+
+      ultimoId = bloco.last().id;
+
+      // Se o bloco veio menor que 100, significa que não há mais mensagens antigas
+      if (bloco.size < 100) break;
+
+      // Pausa de 250ms para respeitar os limites de Rate Limit do Discord
+      await new Promise(r => setTimeout(r, 250));
+    } catch (e) {
+      console.log(`\x1b[31m[INDEXADOR - ERRO] Falha ao baixar bloco: ${e.message}\x1b[0m`);
+      break;
+    }
+  }
+
+  console.log(`\x1b[34m[INDEXADOR] Varredura concluída! Lidas ${totalMensagensLidas} mensagens totais. Encontradas ${textosDoUsuario.length} mensagens de ${nomeUsuario}.\x1b[0m`);
+
+  // Se o usuário tiver histórico, processamos em lotes de 40 mensagens para enviar à IA
+  if (textosDoUsuario.length > 0) {
+    console.log(`\x1b[35m[INDEXADOR] Enviando mensagens em blocos para extração de memórias no Groq...\x1b[0m`);
+    const tamanhoLote = 40;
+
+    for (let i = 0; i < textosDoUsuario.length; i += tamanhoLote) {
+      const lote = textosDoUsuario.slice(i, i + tamanhoLote);
+      const blocoTexto = lote.map(t => `- ${t}`).join("\n");
+
+      try {
+        const promptMassa = `Você é um extrator de memórias de longo prazo de uma IA. Analise as mensagens antigas enviadas por um usuário no Discord e extraia APENAS fatos fixos, preferências claras, dados pessoais reais (ex: data de aniversário, idade, nome de pets, signos, onde mora, gostos marcantes).
+Ignore conversas fiadas, piadas momentâneas, xingamentos ou saudações simples.
+
+Histórico de mensagens do usuário:
+${blocoTexto}
+
+Responda APENAS com a lista de fatos extraídos em português, um por linha, tudo em minúsculo, sem numeração e sem pontuação. Se não encontrar nenhum fato fixo relevante neste bloco, responda exatamente com a palavra "NADA".`;
+
+        const extracao = await groq.chat.completions.create({
+          messages: [{ role: "user", content: promptMassa }],
+          model: "llama-3.1-8b-instant",
+          temperature: 0.1,
+        });
+
+        const resultado = extracao.choices[0]?.message?.content?.trim() || "NADA";
+
+        if (resultado !== "NADA" && !resultado.includes("NADA")) {
+          const linhas = resultado.split("\n");
+          linhas.forEach(linha => {
+            let fatoLimpo = linha.replace(/^-\s*/, "").trim().toLowerCase();
+            if (fatoLimpo.length > 3 && !bancoMemoria[userId].fatos.includes(fatoLimpo)) {
+              bancoMemoria[userId].fatos.push(fatoLimpo);
+              console.log(`\x1b[32m[INDEXADOR - MEMÓRIA DE SUCESSO] Extraído: "${fatoLimpo}"\x1b[0m`);
+            }
+          });
+        }
+      } catch (err) {
+        console.log(`\x1b[31m[INDEXADOR - ERRO IA] Erro no lote ${i}: ${err.message}\x1b[0m`);
+      }
+    }
+  }
+
+  // Marca como indexado de forma permanente e salva no disco
+  bancoMemoria[userId].indexado = true;
+  guardarMemoriaNoDisco();
+  console.log(`\x1b[32m[INDEXADOR] Concluído! O usuário ${nomeUsuario} está 100% indexado para sempre.\x1b[0m`);
+}
+
+// -----------------------------------------------------------
 // CHAMADA PRINCIPAL DA IA (INTEGRADA COM MEMÓRIA, INSTA E PESQUISA)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(
@@ -435,7 +532,7 @@ async function perguntarAoGroqAvancado(
   }
   // ROTA 2: BUSCA NA MEMÓRIA PESSOAL DO USUÁRIO
   else if (analisePesquisa.acao === "PESSOAL") {
-    avisoDinamicoMemoria = `\n\n<ATENÇÃO_SISTEMA>\nO usuário está fazendo uma pergunta sobre INFORMAÇÕES PESSOAIS dele mesmo ou cobrando a sua memória. Consulte ESTRITAMENTE o bloco <MEMORIA_DO_USUARIO> abaixo. Se a resposta não estiver listada lá, seja sincero e diga que ele ainda não te contou isso em mensagens passadas. Não invente fatos pessoais.\n</ATENÇÃO_SISTEMA>`;
+    avisoDinamicoMemoria = `\n\n<ATENÇÃO_SISTEMA>\nO usuário está cobrando a sua memória sobre INFORMAÇÕES PESSOAIS dele. Consulte o bloco <MEMORIA_DO_USUARIO> que foi previamente extraído de todo o histórico antigo de vocês.\n</ATENÇÃO_SISTEMA>`;
   }
 
   // Monta o bloco de memória independentemente da rota, para a IA sempre "conhecer" o usuário
@@ -477,7 +574,7 @@ async function perguntarAoGroqAvancado(
 
 <SISTEMA_DE_LEMBRETES_RESTRITO>
 - Você é um modelo de linguagem e está PROIBIDO de gerar a tag "[lembrete:...]" por iniciativa própria.
-- Você SÓ DEVE gerar a tag se o usuário no prompt atual pedir explicitamente por uma ação de tempo futuro (ex: "me lembra de", "me avise em", "marca um alarme").
+- Você SÓ DEVE gerar a tag si o usuário no prompt atual pedir explicitamente por uma ação de tempo futuro (ex: "me lembra de", "me avise em", "marca um alarme").
 - Formato obrigatório da tag (APENAS se solicitado): [lembrete: minutos_inteiros | mensagem_do_alarme]
 </SISTEMA_DE_LEMBRETES_RESTRITO>
 
@@ -614,7 +711,9 @@ client.once("ready", async () => {
             const dm = await usuarioAlvo.createDM();
             await dm.sendTyping();
             const contextoHistorico = await reconstruirContexto(dm, []);
-            const memoriaUsuario = bancoMemoria[idSorteado] || [];
+
+            // Tratamento retrocompatível para ler a nova estrutura do JSON com segurança
+            const memoriaUsuario = bancoMemoria[idSorteado]?.fatos || (Array.isArray(bancoMemoria[idSorteado]) ? bancoMemoria[idSorteado] : []);
 
             let mensagemAleatoria = await perguntarAoGroqAvancado(
               idSorteado,
@@ -877,7 +976,15 @@ async function processarMensagemFinal(buffer) {
     buffer.msgIds,
   );
 
-  const memoriaUsuario = bancoMemoria[message.author.id] || [];
+  // --- ATUALIZAÇÃO DO SISTEMA DE MEMÓRIA CRONOLÓGICA ---
+  // Verifica se o usuário precisa passar pela Varredura Completa do passado antes de responder
+  if (!bancoMemoria[message.author.id] || !bancoMemoria[message.author.id].indexado) {
+    await indexarHistoricoCompleto(message.channel, message.author.id, nomeUsuario);
+  }
+
+  // Puxa os fatos estruturados da nova propriedade (.fatos)
+  const memoriaUsuario = bancoMemoria[message.author.id]?.fatos || [];
+  // -----------------------------------------------------
 
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
@@ -913,10 +1020,16 @@ async function processarMensagemFinal(buffer) {
     {
       regex: /\[memorizar:\s*([^\]]+?)\]/i,
       action: (match) => {
-        const novoFato = match[1].trim();
-        if (!bancoMemoria[message.author.id]) bancoMemoria[message.author.id] = [];
-        if (!bancoMemoria[message.author.id].includes(novoFato)) {
-          bancoMemoria[message.author.id].push(novoFato);
+        const novoFato = match[1].trim().toLowerCase();
+
+        if (!bancoMemoria[message.author.id]) {
+          bancoMemoria[message.author.id] = { fatos: [], indexado: true };
+        } else if (Array.isArray(bancoMemoria[message.author.id])) {
+          bancoMemoria[message.author.id] = { fatos: bancoMemoria[message.author.id], indexado: true };
+        }
+
+        if (!bancoMemoria[message.author.id].fatos.includes(novoFato)) {
+          bancoMemoria[message.author.id].fatos.push(novoFato);
           console.log(`\x1b[32m[SUCESSO MEMÓRIA] Retido para ${nomeUsuario}: "${novoFato}"\x1b[0m`);
           guardarMemoriaNoDisco();
         }
