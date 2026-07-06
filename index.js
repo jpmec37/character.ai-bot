@@ -29,7 +29,6 @@ const PORT = process.env.PORT || 3000;
 http
   .createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    // TEXTO ORIGINAL MANTIDO PARA O UPTIMEROBOT NÃO APITAR FALSO POSITIVO
     res.end("Himmel versão self-bot - Sistema de Lembretes Blindado com Logs!");
   })
   .listen(PORT, () => {
@@ -37,6 +36,11 @@ http
       `\x1b[32m[WEB SERVER] Ouvindo e operando na porta ${PORT}.\x1b[0m`,
     );
   });
+
+// ================================================================
+// CONFIGURAÇÃO DO WEBHOOK DO INSTAGRAM (MAKE.COM)
+// ================================================================
+const INSTAGRAM_WEBHOOK_URL = process.env.INSTAGRAM_WEBHOOK || "https://hook.us2.make.com/7pu4k841rq4908fddmnf0os8c8k8ilhs";
 
 // ================================================================
 // VARIÁVEIS DE SISTEMAS HUMANIZADOS E ALVOS
@@ -97,12 +101,79 @@ function guardarLembretesNoDisco() {
       "utf-8",
     );
     console.log(
-      `\x1b[36m[LOG DISCO] Banco de lembretes updated com sucesso.\x1b[0m`,
+      `\x1b[36m[LOG DISCO] Banco de lembretes atualizado com sucesso.\x1b[0m`,
     );
   } catch (err) {
     console.log(
       `\x1b[31m[LOG ERRO DISCO] Falha ao salvar arquivo JSON: ${err.message}\x1b[0m`,
     );
+  }
+}
+
+// -----------------------------------------------------------
+// 💾🧠 GESTOR DE MEMÓRIA DE LONGO PRAZO (MAPA DE USUÁRIOS)
+// -----------------------------------------------------------
+let bancoMemoria = {};
+if (fs.existsSync("./memoria_usuarios.json")) {
+  try {
+    bancoMemoria = JSON.parse(fs.readFileSync("./memoria_usuarios.json", "utf-8"));
+    console.log(
+      `\x1b[34m[LOG MEMÓRIA] Banco de perfis e memórias de usuários carregado com sucesso.\x1b[0m`,
+    );
+  } catch (e) {
+    console.log(
+      `\x1b[31m[LOG ERRO DISCO] Arquivo de memória estruturada corrompido, iniciando limpo.\x1b[0m`,
+    );
+    bancoMemoria = {};
+  }
+}
+
+function guardarMemoriaNoDisco() {
+  try {
+    fs.writeFileSync(
+      "./memoria_usuarios.json",
+      JSON.stringify(bancoMemoria, null, 2),
+      "utf-8",
+    );
+    console.log(
+      `\x1b[36m[LOG DISCO] Mapa de memória de longo prazo salvo no disco.\x1b[0m`,
+    );
+  } catch (err) {
+    console.log(
+      `\x1b[31m[LOG ERRO DISCO] Falha ao escrever arquivo de memória: ${err.message}\x1b[0m`,
+    );
+  }
+}
+
+// -----------------------------------------------------------
+// 🚀 ENVIO PARA INSTAGRAM (MAKE.COM)
+// -----------------------------------------------------------
+function enviarParaInstagram(conteudoPost, tipoPost = "story") {
+  if (!INSTAGRAM_WEBHOOK_URL || INSTAGRAM_WEBHOOK_URL.includes("COLE_AQUI")) {
+    console.log("\x1b[31m[INSTAGRAM API] Erro: Link do Webhook do Make não foi configurado.\x1b[0m");
+    return;
+  }
+  console.log(`\x1b[35m[INSTAGRAM API] Despachando (${tipoPost.toUpperCase()}) para o Make: "${conteudoPost}"\x1b[0m`);
+
+  try {
+    const dadosBrutos = JSON.stringify({ texto: conteudoPost, tipo: tipoPost });
+    const opcoes = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(dadosBrutos)
+      }
+    };
+    const requisicao = https.request(INSTAGRAM_WEBHOOK_URL, opcoes, (resposta) => {
+      console.log(`\x1b[32m[INSTAGRAM API] Resposta recebida do Make. Status: ${resposta.statusCode}\x1b[0m`);
+    });
+    requisicao.on("error", (erro) => {
+      console.log(`\x1b[31m[INSTAGRAM API - ERRO] Falha no envio HTTP: ${erro.message}\x1b[0m`);
+    });
+    requisicao.write(dadosBrutos);
+    requisicao.end();
+  } catch (err) {
+    console.log(`\x1b[31m[INSTAGRAM API - ERRO] Falha crítica: ${err.message}\x1b[0m`);
   }
 }
 
@@ -123,27 +194,18 @@ if (fs.existsSync("./commands")) {
 }
 
 // -----------------------------------------------------------
-// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (CÉREBRO IA RÍGIDO)
+// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (CÉREBRO IA TRIPLO)
 // -----------------------------------------------------------
 async function avaliarNecessidadeDePesquisa(textoUsuario) {
   try {
-    const promptTriagem = `Você é um analisador lógico RÍGIDO de um bot do Discord. Sua ÚNICA função é decidir se a mensagem atual exige uma pesquisa na internet.
+    const promptTriagem = `Você é um classificador lógico RÍGIDO de um bot do Discord. Categorize a mensagem atual escolhendo UMA das 3 rotas abaixo:
 
-Você SÓ DEVE retornar "SIM" se a mensagem for EXPLICITAMENTE uma pergunta sobre fatos recentes, notícias do dia, clima atual, resultados/placares de futebol ou esportes, ou dados concretos do mundo real.
-Se for conversa fiada, perguntas sobre você mesmo, pedir conselhos, falar sobre pesquisas ("quero testar a pesquisa"), saudações ou piadas, retorne APENAS a palavra: NAO.
+1. "INTERNET | termo_de_busca_otimizado" -> Se a pergunta for sobre o mundo real, notícias, clima, esportes, lançamentos ou fatos que exigem pesquisar no Google.
+2. "PESSOAL" -> Se o usuário estiver perguntando sobre informações PESSOAIS dele mesmo ou testando a sua memória sobre conversas antigas (ex: "qual minha cor favorita?", "como é meu nome?", "lembra o que te falei?").
+3. "NAO" -> Para todo o resto: conversa fiada, piadas, pedir pra você memorizar algo, pedir pra postar no instagram, saudações ou opiniões.
 
-Regras de Resposta:
-- Precisa pesquisar fatos externos: responda "SIM | termo_de_busca_otimizado" (Ex: SIM | placar jogo flamengo ontem)
-- É apenas conversa: responda "NAO"
-
-Exemplos Práticos:
-User: "quem ganhou o jogo de ontem?" -> SIM | resultado jogo ontem placar
-User: "testando a pesquisa do bot" -> NAO
-User: "qual a temperatura agora em SP?" -> SIM | temperatura clima são paulo agora
-User: "vc acha o neymar bom?" -> NAO
-User: "me lembra de dormir" -> NAO
-
-Mensagem atual do usuário: "${textoUsuario}"`;
+Mensagem atual do usuário: "${textoUsuario}"
+Responda APENAS com a ação correspondente (INTERNET, PESSOAL ou NAO):`;
 
     const triagemCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptTriagem }],
@@ -153,26 +215,31 @@ Mensagem atual do usuário: "${textoUsuario}"`;
     });
 
     const respostaTriagem =
-      triagemCompletion.choices[0]?.message?.content?.trim() || "NAO";
+      triagemCompletion.choices[0]?.message?.content?.trim().toUpperCase() || "NAO";
 
-    if (respostaTriagem.toUpperCase().startsWith("SIM")) {
+    if (respostaTriagem.includes("INTERNET")) {
       const partes = respostaTriagem.split("|");
       const termoExtraido = partes.length > 1 ? partes[1].trim() : textoUsuario;
       console.log(
-        `\x1b[35m[IA TRIAGEM] Decidiu que SIM. Busca gerada: "${termoExtraido}"\x1b[0m`,
+        `\x1b[35m[IA TRIAGEM] Rota: INTERNET. Busca otimizada gerada: "${termoExtraido}"\x1b[0m`,
       );
-      return { devePesquisar: true, termoBusca: termoExtraido };
+      return { acao: "INTERNET", termoBusca: termoExtraido };
+    } else if (respostaTriagem.includes("PESSOAL")) {
+      console.log(
+        `\x1b[36m[IA TRIAGEM] Rota: PESSOAL. Vai vasculhar o banco de memória JSON do usuário.\x1b[0m`,
+      );
+      return { acao: "PESSOAL", termoBusca: "" };
     }
 
     console.log(
-      `\x1b[35m[IA TRIAGEM] Decidiu que NAO precisa de internet para essa mensagem.\x1b[0m`,
+      `\x1b[32m[IA TRIAGEM] Rota: NAO precisa de internet ou busca em banco.\x1b[0m`,
     );
-    return { devePesquisar: false, termoBusca: "" };
+    return { acao: "NAO", termoBusca: "" };
   } catch (err) {
     console.log(
       `\x1b[31m[IA TRIAGEM - ERRO] Falha ao consultar Groq para triagem.\x1b[0m`,
     );
-    return { devePesquisar: false, termoBusca: "" };
+    return { acao: "NAO", termoBusca: "" };
   }
 }
 
@@ -198,7 +265,7 @@ function buscarNaWebNativo(query) {
               );
               return resolve(`Resumo: ${json.AbstractText}`);
             }
-          } catch (e) {}
+          } catch (e) { }
 
           console.log(
             `\x1b[33m[SISTEMA PESQUISA] API Oficial sem dados diretos. Ativando fallback de Raspagem HTML...\x1b[0m`,
@@ -258,7 +325,7 @@ function buscarNaWebNativo(query) {
 // -----------------------------------------------------------
 async function gerarMensagemUnica(comandoInstrucao) {
   try {
-    const sistemaBase = `Escreva uma resposta corta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
+    const sistemaBase = `Escreva uma resposta curta como um humano jovem de internet no discord, tudo sempre em minúsculo, sem nenhuma pontuação formal no final das frases. Nunca termine com vírgula. Use gírias de forma natural.\n\nInstrução do que dizer agora: ${comandoInstrucao}`;
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: sistemaBase }],
       model: "llama-3.1-8b-instant",
@@ -281,12 +348,18 @@ async function reconstruirContexto(channel, ignoreIds = []) {
     const fetched = await channel.messages.fetch({ limit: 15 });
     const mensagens = [];
     const lembreteRegexGlobal = /\[lembrete:\s*.*?\s*\|\s*.*?\]/gi;
+    const memorizarRegexGlobal = /\[memorizar:\s*.*?\]/gi;
+    const instaStoryRegexGlobal = /\[instagram_story:\s*.*?\]/gi;
+    const instaFeedRegexGlobal = /\[instagram_feed:\s*.*?\]/gi;
 
     fetched.reverse().forEach((msg) => {
       if (msg.content.trim() === "" || ignoreIds.includes(msg.id)) return;
 
       let conteudo = msg.content;
-      conteudo = conteudo.replace(lembreteRegexGlobal, "").trim();
+      conteudo = conteudo.replace(lembreteRegexGlobal, "")
+        .replace(memorizarRegexGlobal, "")
+        .replace(instaStoryRegexGlobal, "")
+        .replace(instaFeedRegexGlobal, "").trim();
 
       if (conteudo.length === 0) return;
 
@@ -321,19 +394,22 @@ async function reconstruirContexto(channel, ignoreIds = []) {
 }
 
 // -----------------------------------------------------------
-// CHAMADA PRINCIPAL DA IA (COM TRATAMENTO DE BUSCA E BLINDAGEM)
+// CHAMADA PRINCIPAL DA IA (INTEGRADA COM MEMÓRIA, INSTA E PESQUISA)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(
   idUsuario,
   nomeUsuario,
   textoAtual,
   contextoHistorico,
+  memoriaUsuario = []
 ) {
   let contextoWeb = "";
+  let avisoDinamicoMemoria = "";
 
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
 
-  if (analisePesquisa.devePesquisar) {
+  // ROTA 1: BUSCA NA INTERNET
+  if (analisePesquisa.acao === "INTERNET") {
     let termoSanitizado = analisePesquisa.termoBusca
       .toLowerCase()
       .replace(/\banti\s*ontem\b/g, "anteontem")
@@ -343,7 +419,7 @@ async function perguntarAoGroqAvancado(
       .trim();
 
     console.log(
-      `\x1b[36m[SISTEMA PESQUISA] Sanitizado e otimizado para: "${termoSanitizado}"\x1b[0m`,
+      `\x1b[36m[SISTEMA PESQUISA] Termo original: "${analisePesquisa.termoBusca}" -> Sanitizado para: "${termoSanitizado}"\x1b[0m`,
     );
 
     const dadosBusca = await buscarNaWebNativo(termoSanitizado);
@@ -354,8 +430,20 @@ async function perguntarAoGroqAvancado(
       console.log(
         `\x1b[31m[LOG IA] Avisando o modelo que a busca na web falhou ou retornou vazia.\x1b[0m`,
       );
-      contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${termoSanitizado}", mas o sistema de busca falhou ou retornou zero resultados. Seja sincero de forma natural e informal: diga que deu uma olhada rápida na internet para ver se achava mas acabou não encontrando dados precisos sobre isso ou que a busca bugou.\n</AVISO_DE_SISTEMA>`;
+      contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${termoSanitizado}", mas o sistema de busca falhou ou retornou zero resultados. Seja sincero de forma natural e informal: diga que deu uma olhada rápida na internet para ver se achava mas acabou não encontrando dados precisos sobre isso.\n</AVISO_DE_SISTEMA>`;
     }
+  }
+  // ROTA 2: BUSCA NA MEMÓRIA PESSOAL DO USUÁRIO
+  else if (analisePesquisa.acao === "PESSOAL") {
+    avisoDinamicoMemoria = `\n\n<ATENÇÃO_SISTEMA>\nO usuário está fazendo uma pergunta sobre INFORMAÇÕES PESSOAIS dele mesmo ou cobrando a sua memória. Consulte ESTRITAMENTE o bloco <MEMORIA_DO_USUARIO> abaixo. Se a resposta não estiver listada lá, seja sincero e diga que ele ainda não te contou isso em mensagens passadas. Não invente fatos pessoais.\n</ATENÇÃO_SISTEMA>`;
+  }
+
+  // Monta o bloco de memória independentemente da rota, para a IA sempre "conhecer" o usuário
+  let contextoMemoria = "";
+  if (memoriaUsuario && memoriaUsuario.length > 0) {
+    contextoMemoria = `\n\n<MEMORIA_DO_USUARIO>\nVocê memorizou estas informações e fatos fixos sobre este usuário:\n${memoriaUsuario.map(fato => `- ${fato}`).join("\n")}\nUse isso de forma fluida se o assunto permitir.</MEMORIA_DO_USUARIO>`;
+  } else if (analisePesquisa.acao === "PESSOAL") {
+    contextoMemoria = `\n\n<MEMORIA_DO_USUARIO>\n(Seu banco de dados sobre as mensagens deste usuário está completamente vazio no momento.)\n</MEMORIA_DO_USUARIO>`;
   }
 
   const modelosParaTentar = [
@@ -390,13 +478,28 @@ async function perguntarAoGroqAvancado(
 <SISTEMA_DE_LEMBRETES_RESTRITO>
 - Você é um modelo de linguagem e está PROIBIDO de gerar a tag "[lembrete:...]" por iniciativa própria.
 - Você SÓ DEVE gerar a tag se o usuário no prompt atual pedir explicitamente por uma ação de tempo futuro (ex: "me lembra de", "me avise em", "marca um alarme").
-- Se o usuário estiver apenas conversando, fazendo perguntas cotidianas ou perguntas sobre pesquisas da internet, IGNORE COMPLETAMENTE a existência desse sistema e nunca escreva a palavra "lembrete" entre colchetes.
 - Formato obrigatório da tag (APENAS se solicitado): [lembrete: minutos_inteiros | mensagem_do_alarme]
-</SISTEMA_DE_LEMBRETES_RESTRITO>`;
+</SISTEMA_DE_LEMBRETES_RESTRITO>
+
+<SISTEMA_INTERATIVO_INSTAGRAM>
+- Você gerencia o seu PRÓPRIO perfil no Instagram e tem autonomia para postar.
+- Você posta quando: 1. O usuário manda você postar. 2. A conversa rende uma reflexão muito engraçada, bizarra ou interessante.
+- Regra de Anonimato: NUNCA cite nomes de usuários reais. Transforme o fato num pensamento genérico de internet.
+- Para postar, use uma das tags grudadas no final da sua resposta:
+  [instagram_story: texto casual e curto do post]
+  [instagram_feed: texto mais elaborado do post]
+</SISTEMA_INTERATIVO_INSTAGRAM>
+
+<SISTEMA_DE_APRENDIZADO_CONTINUO>
+- Você registra fatos fixos do usuário (gostos, pets, idade) OU respostas de pesquisas importantes que ele pediu e que vale a pena guardar (Ex: resultado de um jogo memorável, um dado estável).
+- Se a mensagem dele trouxer um dado novo relevante ou se a sua pesquisa achar algo importante para ele, anexe OBRIGATORIAMENTE no final da sua resposta a tag: [memorizar: resumo do fato em terceira pessoa]
+- Exemplo: [memorizar: a cor favorita do usuário é azul] ou [memorizar: a capital da frança é paris]
+- ATENÇÃO: Nunca memorize estados temporários como "o usuário está com sono hoje".
+</SISTEMA_DE_APRENDIZADO_CONTINUO>`;
 
       const sistemaPersonalidade =
         (config.personalidade || "Você é um humano jovem no discord.") +
-        instrucoesDisfarce;
+        instrucoesDisfarce + avisoDinamicoMemoria + contextoMemoria;
 
       const mensagensParaEnviar = [
         { role: "system", content: `${sistemaPersonalidade}${contextoWeb}` },
@@ -414,7 +517,7 @@ async function perguntarAoGroqAvancado(
       const chatCompletion = await groq.chat.completions.create({
         messages: mensagensParaEnviar,
         model: modeloAtual,
-        temperature: 0.3,
+        temperature: 0.35,
       });
 
       return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
@@ -443,7 +546,7 @@ client.once("ready", async () => {
     status: "online",
   });
 
-  // Verificador Cron de Lembretes (AGORA HUMANIZADO COM IA E SLANGS)
+  // Verificador Cron de Lembretes (HUMANIZADO COM IA)
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -461,7 +564,6 @@ client.once("ready", async () => {
             : await client.channels.fetch(lembrete.channelId);
 
           if (destino) {
-            // Solicita um aviso customizado gerado de forma fluida pela IA
             const avisoIA = await gerarMensagemUnica(
               `O cronômetro de um usuário acabou de bater. O que ele tinha pedido para lembrar é: "${lembrete.textoAlarme}". Crie uma frase bem curta, de jovem de internet, avisando ou zoando ele de forma descontraída, sem pontuação formal.`,
             );
@@ -469,17 +571,13 @@ client.once("ready", async () => {
             let textoFinal = avisoIA.toLowerCase().trim();
             textoFinal = textoFinal.replace(/,+$/, "");
 
-            // FALLBACKS RESERVA: Se a API falhar ou demorar, usa uma rota humana alternativa
             if (!textoFinal || textoFinal.length < 3) {
               const giriasReserva = [
                 `ow mano, tu pediu pra te lembrar de ${lembrete.textoAlarme} ksks`,
                 `passando pra avisar da fita lá: ${lembrete.textoAlarme} mds tinha esquecido né`,
-                `bro, aqui o aviso q tu pediu pra lembrar: ${lembrete.textoAlarme}`,
-                `lembrete pra tu não mofar: ${lembrete.textoAlarme} ashuahsu`,
                 `acorda ae kkk tu pediu pra lembrar de ${lembrete.textoAlarme}`,
               ];
-              textoFinal =
-                giriasReserva[Math.floor(Math.random() * giriasReserva.length)];
+              textoFinal = giriasReserva[Math.floor(Math.random() * giriasReserva.length)];
             }
 
             if (lembrete.isDM) {
@@ -516,17 +614,17 @@ client.once("ready", async () => {
             const dm = await usuarioAlvo.createDM();
             await dm.sendTyping();
             const contextoHistorico = await reconstruirContexto(dm, []);
+            const memoriaUsuario = bancoMemoria[idSorteado] || [];
+
             let mensagemAleatoria = await perguntarAoGroqAvancado(
               idSorteado,
               usuarioAlvo.username,
               "Puxe assunto comigo no privado do nada.",
               contextoHistorico,
+              memoriaUsuario
             );
 
-            mensagemAleatoria = mensagemAleatoria.replace(
-              /\[lembrete:\s*.*?\s*\|\s*.*?\]/gi,
-              "",
-            );
+            mensagemAleatoria = mensagemAleatoria.replace(/\[.*?\]/gi, "");
             let textoLimpo = mensagemAleatoria
               .toLowerCase()
               .replace(/,+$/, "")
@@ -534,7 +632,7 @@ client.once("ready", async () => {
 
             if (textoLimpo.length > 0) await dm.send(textoLimpo);
           }
-        } catch (err) {}
+        } catch (err) { }
       }
       rotinaMensagemAleatoria();
     }, tempoEspera);
@@ -549,7 +647,8 @@ client.once("ready", async () => {
         if (now - lastTime > 6 * 60 * 60 * 1000) {
           try {
             const channel = await client.channels.fetch(channelId);
-            if (channel && channel.isTextBased()) {
+            // BLINDAGEM DE SERVIDOR
+            if (channel && channel.isTextBased() && channel.guild) {
               const quebraGeloDinamico = await gerarMensagemUnica(
                 "O chat do grupo está parado há horas (chat morto). Mande uma frase bem curta e informal de jovem para puxar assunto ou zoar o silêncio de todo mundo.",
               );
@@ -561,8 +660,10 @@ client.once("ready", async () => {
                 textoFormato || "bando de morto kkk alguem vivo?",
               );
               channelActivity.set(channelId, Date.now());
+            } else {
+              channelActivity.delete(channelId);
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
     },
@@ -577,7 +678,7 @@ client.once("ready", async () => {
       await rest.put(Routes.applicationCommands(client.user.id), {
         body: commands,
       });
-  } catch (e) {}
+  } catch (e) { }
 });
 
 // -----------------------------------------------------------
@@ -587,7 +688,10 @@ client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   if (/^[!\.\-\?\/]/.test(message.content)) return;
 
-  channelActivity.set(message.channel.id, Date.now());
+  // BLINDAGEM DE SERVIDOR PARA INATIVIDADE
+  if (message.guild) {
+    channelActivity.set(message.channel.id, Date.now());
+  }
 
   const now = Date.now();
   const userFlood = userFloodControl.get(message.author.id) || {
@@ -615,7 +719,7 @@ client.on("messageCreate", async (message) => {
       const textoFormato = msgFlood.toLowerCase().replace(/,+$/, "").trim();
       return message.channel
         .send(textoFormato || "mano calma kk deixa eu respirar")
-        .catch(() => {});
+        .catch(() => { });
     }
   } else {
     userFlood.count = 1;
@@ -707,7 +811,7 @@ async function processarMensagemFinal(buffer) {
     const textoFormato = respMedia.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
       .send(textoFormato || "carai kkk")
-      .catch(() => {});
+      .catch(() => { });
   }
 
   if (
@@ -715,14 +819,14 @@ async function processarMensagemFinal(buffer) {
     msgText === "..." ||
     msgText.toLowerCase() === "hm"
   ) {
-    if (Math.random() < 0.2) return message.react("👀").catch(() => {});
+    if (Math.random() < 0.2) return message.react("👀").catch(() => { });
     const respVazia = await gerarMensagemUnica(
       `O usuário chamado ${nomeUsuario} te marcou mas não digitou nada relevante. Mande ele falar o que quer.`,
     );
     const textoFormato = respVazia.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
       .send(textoFormato || "eai manda")
-      .catch(() => {});
+      .catch(() => { });
   }
 
   const txtMin = msgText.toLowerCase();
@@ -733,14 +837,14 @@ async function processarMensagemFinal(buffer) {
     const textoFormato = respDuplicada.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
       .send(textoFormato || "vc ja perguntou isso doido kkk")
-      .catch(() => {});
+      .catch(() => { });
   }
   lastUserMessage.set(message.author.id, txtMin);
 
   if (txtMin.includes("kkk") || txtMin.includes("ksks"))
-    message.react("💀").catch(() => {});
+    message.react("💀").catch(() => { });
   else if (txtMin.includes("?") && txtMin.length < 15)
-    message.react("🤔").catch(() => {});
+    message.react("🤔").catch(() => { });
 
   const horaBR = parseInt(
     new Date().toLocaleString("en-US", {
@@ -762,9 +866,9 @@ async function processarMensagemFinal(buffer) {
 
   await new Promise((resolve) => setTimeout(resolve, tempoLendo));
 
-  message.channel.sendTyping().catch(() => {});
+  message.channel.sendTyping().catch(() => { });
   const typingInterval = setInterval(
-    () => message.channel.sendTyping().catch(() => {}),
+    () => message.channel.sendTyping().catch(() => { }),
     9000,
   );
 
@@ -772,45 +876,73 @@ async function processarMensagemFinal(buffer) {
     message.channel,
     buffer.msgIds,
   );
+
+  const memoriaUsuario = bancoMemoria[message.author.id] || [];
+
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
     nomeUsuario,
     msgText,
     contextoHistorico,
+    memoriaUsuario
   );
 
-  const regexLembreteFlexivel =
-    /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i;
-  let matchLembrete = respostaIA.match(regexLembreteFlexivel);
-
-  if (matchLembrete) {
-    const apenasNumeros = matchLembrete[1].replace(/\D/g, "");
-    const minutos = parseInt(apenasNumeros, 10);
-    const textoCustomizado = matchLembrete[2].trim();
-
-    if (!isNaN(minutos) && minutos > 0) {
-      bancoLembretes.push({
-        userId: message.author.id,
-        channelId: message.channel.id,
-        isDM: !message.guild,
-        textoAlarme: textoCustomizado,
-        timestampDisparo: Date.now() + minutos * 60 * 1000,
-      });
-
-      console.log(
-        `\x1b[32m[SUCESSO GESTOR] Novo alarme agendado via chat: "${textoCustomizado}" para daqui a ${minutos}m.\x1b[0m`,
-      );
-
-      respostaIA = respostaIA.replace(regexLembreteFlexivel, "").trim();
-      guardarLembretesNoDisco();
+  // ================================================================
+  // EXTRATOR DINÂMICO DE TAGS GERAIS (MEMÓRIA, INSTA, LEMBRETES)
+  // ================================================================
+  const tagsEspeciais = [
+    {
+      regex: /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i,
+      action: (match) => {
+        const apenasNumeros = match[1].replace(/\D/g, "");
+        const minutos = parseInt(apenasNumeros, 10);
+        const textoCustomizado = match[2].trim();
+        if (!isNaN(minutos) && minutos > 0) {
+          bancoLembretes.push({
+            userId: message.author.id,
+            channelId: message.channel.id,
+            isDM: !message.guild,
+            textoAlarme: textoCustomizado,
+            timestampDisparo: Date.now() + minutos * 60 * 1000,
+          });
+          console.log(`\x1b[32m[SUCESSO GESTOR] Novo alarme agendado via chat: "${textoCustomizado}" para daqui a ${minutos}m.\x1b[0m`);
+          guardarLembretesNoDisco();
+        }
+      }
+    },
+    {
+      regex: /\[memorizar:\s*([^\]]+?)\]/i,
+      action: (match) => {
+        const novoFato = match[1].trim();
+        if (!bancoMemoria[message.author.id]) bancoMemoria[message.author.id] = [];
+        if (!bancoMemoria[message.author.id].includes(novoFato)) {
+          bancoMemoria[message.author.id].push(novoFato);
+          console.log(`\x1b[32m[SUCESSO MEMÓRIA] Retido para ${nomeUsuario}: "${novoFato}"\x1b[0m`);
+          guardarMemoriaNoDisco();
+        }
+      }
+    },
+    {
+      regex: /\[instagram_story:\s*([^\]]+?)\]/i,
+      action: (match) => enviarParaInstagram(match[1].trim(), "story")
+    },
+    {
+      regex: /\[instagram_feed:\s*([^\]]+?)\]/i,
+      action: (match) => enviarParaInstagram(match[1].trim(), "feed")
     }
-  }
+  ];
 
-  respostaIA = respostaIA.replace(
-    /lembrete:\s*\d+\s*(minutos|minuto|m|hora|horas|h|dia|dias|d)?(,\s*)?/gi,
-    "",
-  );
-  respostaIA = respostaIA.replace(/vou te lembrar de\s+[^,]+(,\s*)?/gi, "");
+  tagsEspeciais.forEach(tagObj => {
+    let match;
+    while ((match = respostaIA.match(tagObj.regex)) !== null) {
+      tagObj.action(match);
+      respostaIA = respostaIA.replace(tagObj.regex, "").trim();
+    }
+  });
+
+  // FILTROS FINAIS DE LIMPEZA DE SEGURANÇA CONTRA VAZAMENTOS
+  respostaIA = respostaIA.replace(/\[.*?\]/g, "");
+  respostaIA = respostaIA.replace(/lembrete:\s*\d+\s*(minutos|minuto|m|hora|horas|h)?(,\s*)?/gi, "");
   respostaIA = respostaIA.replace(/deixa comigo,\s*/gi, "deixa comigo ");
   respostaIA = respostaIA.trim();
 
@@ -859,7 +991,7 @@ async function processarMensagemFinal(buffer) {
       }
       await message.channel.send(textoFinal);
     } catch (erroDeEnvio) {
-      await message.channel.send(textoFinal).catch(() => {});
+      await message.channel.send(textoFinal).catch(() => { });
     }
   }
 }
@@ -870,7 +1002,7 @@ client.on("interactionCreate", async (interaction) => {
     if (!slashCommand) return;
     try {
       await slashCommand.execute(client, interaction, null);
-    } catch (err) {}
+    } catch (err) { }
   }
 });
 
