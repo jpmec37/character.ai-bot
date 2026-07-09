@@ -38,18 +38,21 @@ http
   });
 
 // ================================================================
-// CONFIGURAÇÃO DO WEBHOOK DO INSTAGRAM (MAKE.COM)
+// CONFIGURAÇÃO DOS WEBHOOKS DE REDES SOCIAIS (MAKE.COM)
 // ================================================================
 const INSTAGRAM_WEBHOOK_URL = process.env.INSTAGRAM_WEBHOOK || "https://hook.us2.make.com/7pu4k841rq4908fddmnf0os8c8k8ilhs";
+const TWITTER_WEBHOOK_URL = process.env.TWITTER_WEBHOOK || "COLE_AQUI_SEU_WEBHOOK_DO_TWITTER_SE_QUISER";
 
 // ================================================================
 // VARIÁVEIS DE SISTEMAS HUMANIZADOS E ALVOS
 // ================================================================
-const IDS_ALVO_DM = ["1310397024541212672", "760510107988918333"];
+// ID Novo adicionado com sucesso à lista de monitoramento e DMs expontâneas
+const IDS_ALVO_DM = ["1310397024541212672", "760510107988918333", "1309344503617945651"];
 const userFloodControl = new Map();
 const lastUserMessage = new Map();
 const channelActivity = new Map();
 const userMessageBuffers = new Map();
+const lastBomDiaSent = new Map(); // Controle para não repetir o bom dia no mesmo dia
 
 let config = {};
 if (fs.existsSync("./config.json")) {
@@ -136,7 +139,7 @@ function guardarMemoriaNoDisco() {
       "utf-8",
     );
     console.log(
-      `\x1b[36m[LOG DISCO] Mapa de memória de longo prazo salvo no disco.\x1b[0m`,
+      `\x1b[36m[LOG DISCO] Mapa de memória de longo prazo  salvo no disco.\x1b[0m`,
     );
   } catch (err) {
     console.log(
@@ -146,7 +149,7 @@ function guardarMemoriaNoDisco() {
 }
 
 // -----------------------------------------------------------
-// 🚀 ENVIO PARA INSTAGRAM (MAKE.COM)
+// 🚀 INJECTOR DE CONEXÕES MULTI-REDES (MAKE.COM)
 // -----------------------------------------------------------
 function enviarParaInstagram(conteudoPost, tipoPost = "story") {
   if (!INSTAGRAM_WEBHOOK_URL || INSTAGRAM_WEBHOOK_URL.includes("COLE_AQUI")) {
@@ -174,6 +177,33 @@ function enviarParaInstagram(conteudoPost, tipoPost = "story") {
     requisicao.end();
   } catch (err) {
     console.log(`\x1b[31m[INSTAGRAM API - ERRO] Falha crítica: ${err.message}\x1b[0m`);
+  }
+}
+
+function enviarParaTwitter(conteudoTweet) {
+  if (!TWITTER_WEBHOOK_URL || TWITTER_WEBHOOK_URL.includes("COLE_AQUI")) {
+    console.log("\x1b[31m[X-TWITTER API] Aviso: Webhook do Twitter não configurado. Ignorando disparo automático.\x1b[0m");
+    return;
+  }
+  console.log(`\x1b[35m[X-TWITTER API] Despachando micro-post para o Make: "${conteudoTweet}"\x1b[0m`);
+
+  try {
+    const dadosBrutos = JSON.stringify({ tweet: conteudoTweet, timestamp: Date.now() });
+    const opcoes = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(dadosBrutos)
+      }
+    };
+    const requisicao = https.request(TWITTER_WEBHOOK_URL, opcoes, (resposta) => {
+      console.log(`\x1b[32m[X-TWITTER API] Post enviado ao Make. Status: ${resposta.statusCode}\x1b[0m`);
+    });
+    requisicao.on("error", (err) => console.log(`\x1b[31m[X-TWITTER ERRO] Falha HTTP: ${err.message}\x1b[0m`));
+    requisicao.write(dadosBrutos);
+    requisicao.end();
+  } catch (err) {
+    console.log(`\x1b[31m[X-TWITTER CRÍTICO] Erro: ${err.message}\x1b[0m`);
   }
 }
 
@@ -351,6 +381,7 @@ async function reconstruirContexto(channel, ignoreIds = []) {
     const memorizarRegexGlobal = /\[memorizar:\s*.*?\]/gi;
     const instaStoryRegexGlobal = /\[instagram_story:\s*.*?\]/gi;
     const instaFeedRegexGlobal = /\[instagram_feed:\s*.*?\]/gi;
+    const twitterRegexGlobal = /\[twitter_tweet:\s*.*?\]/gi;
 
     fetched.reverse().forEach((msg) => {
       if (msg.content.trim() === "" || ignoreIds.includes(msg.id)) return;
@@ -359,7 +390,8 @@ async function reconstruirContexto(channel, ignoreIds = []) {
       conteudo = conteudo.replace(lembreteRegexGlobal, "")
         .replace(memorizarRegexGlobal, "")
         .replace(instaStoryRegexGlobal, "")
-        .replace(instaFeedRegexGlobal, "").trim();
+        .replace(instaFeedRegexGlobal, "")
+        .replace(twitterRegexGlobal, "").trim();
 
       if (conteudo.length === 0) return;
 
@@ -387,24 +419,23 @@ async function reconstruirContexto(channel, ignoreIds = []) {
             : `[${nome}]: ${conteudo}`,
       });
     });
-    return mensagens;
+    return mensajes;
   } catch (e) {
     return [];
   }
 }
 
 // -----------------------------------------------------------
-// 🕵️‍♂️ VARREDURA ARQUEOLÓGICA COMPLETA (INDEXAÇÃO EM MASSA ATÉ O INÍCIO DO CHAT)
+// 🕵️‍♂️ VARREDURA ARQUEOLÓGICA COMPLETA (INDEXAÇÃO EM MASSA ANTIDUPLICADA)
 // -----------------------------------------------------------
 async function indexarHistoricoCompleto(channel, userId, nomeUsuario) {
-  // Garante a compatibilidade e criação da nova estrutura do JSON
   if (!bancoMemoria[userId] || Array.isArray(bancoMemoria[userId])) {
     const fatosAntigos = Array.isArray(bancoMemoria[userId]) ? bancoMemoria[userId] : [];
-    bancoMemoria[userId] = { fatos: fatosAntigos, indexado: false };
+    bancoMemoria[userId] = { fatos: fatosAntigos, indexado: false, indexando: false };
   }
 
-  // Se já foi indexado no passado, não faz absolutamente nada
-  if (bancoMemoria[userId].indexado) return;
+  if (bancoMemoria[userId].indexado || bancoMemoria[userId].indexando) return;
+  bancoMemoria[userId].indexando = true;
 
   console.log(`\x1b[33m[INDEXADOR] ${nomeUsuario} não está indexado. Iniciando varredura COMPLETA até o início do chat...\x1b[0m`);
 
@@ -412,27 +443,22 @@ async function indexarHistoricoCompleto(channel, userId, nomeUsuario) {
   let textosDoUsuario = [];
   let totalMensagensLidas = 0;
 
-  // Loop infinito controlado: baixa de 100 em 100 até o chat acabar
   while (true) {
     try {
       const opcoesFetch = { limit: 100 };
       if (ultimoId) opcoesFetch.before = ultimoId;
 
       const bloco = await channel.messages.fetch(opcoesFetch);
-      if (!bloco || bloco.size === 0) break; // Chegou ao fim do histórico
+      if (!bloco || bloco.size === 0) break;
 
       totalMensagensLidas += bloco.size;
 
-      // Filtra apenas as mensagens que o próprio usuário enviou
       const msgsUsuario = bloco.filter(m => m.author.id === userId && m.content.trim().length > 0);
       msgsUsuario.forEach(m => textosDoUsuario.push(m.content));
 
       ultimoId = bloco.last().id;
-
-      // Se o bloco veio menor que 100, significa que não há mais mensagens antigas
       if (bloco.size < 100) break;
 
-      // Pausa de 250ms para respeitar os limites de Rate Limit do Discord
       await new Promise(r => setTimeout(r, 250));
     } catch (e) {
       console.log(`\x1b[31m[INDEXADOR - ERRO] Falha ao baixar bloco: ${e.message}\x1b[0m`);
@@ -442,7 +468,6 @@ async function indexarHistoricoCompleto(channel, userId, nomeUsuario) {
 
   console.log(`\x1b[34m[INDEXADOR] Varredura concluída! Lidas ${totalMensagensLidas} mensagens totais. Encontradas ${textosDoUsuario.length} mensagens de ${nomeUsuario}.\x1b[0m`);
 
-  // Se o usuário tiver histórico, processamos em lotes de 40 mensagens para enviar à IA
   if (textosDoUsuario.length > 0) {
     console.log(`\x1b[35m[INDEXADOR] Enviando mensagens em blocos para extração de memórias no Groq...\x1b[0m`);
     const tamanhoLote = 40;
@@ -452,13 +477,16 @@ async function indexarHistoricoCompleto(channel, userId, nomeUsuario) {
       const blocoTexto = lote.map(t => `- ${t}`).join("\n");
 
       try {
-        const promptMassa = `Você é um extrator de memórias de longo prazo de uma IA. Analise as mensagens antigas enviadas por um usuário no Discord e extraia APENAS fatos fixos, preferências claras, dados pessoais reais (ex: data de aniversário, idade, nome de pets, signos, onde mora, gostos marcantes).
-Ignore conversas fiadas, piadas momentâneas, xingamentos ou saudações simples.
+        const promptMassa = `Você é um extrator lógico de memórias estáveis. Analise o lote de mensagens antigas enviadas por um usuário no Discord e extraia APENAS fatos fixos, permanentes e preferências reais de longo prazo (ex: nome, idade, aniversário, cidade, se tem animais de estimação, jogos favoritos de verdade, profissão ou gostos que definem a pessoa).
 
-Histórico de mensagens do usuário:
+CRÍTICO:
+- Ignore TOTALMENTE conversas fiadas, saudações (ex: "salve", "eai"), reações (ex: "mds kkkk", "carai"), risadas, xingamentos, gírias isoladas ou avisos temporários do chat (ex: "to bem vei", "vc tinha morrido", "não para de bugar").
+- Não extraia comandos ou pedidos de alarme que ele fez no passado.
+
+Histórico de mensagens:
 ${blocoTexto}
 
-Responda APENAS com a lista de fatos extraídos em português, um por linha, tudo em minúsculo, sem numeração e sem pontuação. Se não encontrar nenhum fato fixo relevante neste bloco, responda exatamente com a palavra "NADA".`;
+Responda APENAS com a lista de fatos estáveis em português (um por linha, em minúsculas, sem números e sem pontuação). Se o bloco só contiver bobeira, chat temporário ou nada marcante, responda estritamente com a palavra: NADA`;
 
         const extracao = await groq.chat.completions.create({
           messages: [{ role: "user", content: promptMassa }],
@@ -471,8 +499,12 @@ Responda APENAS com a lista de fatos extraídos em português, um por linha, tud
         if (resultado !== "NADA" && !resultado.includes("NADA")) {
           const linhas = resultado.split("\n");
           linhas.forEach(linha => {
-            let fatoLimpo = linha.replace(/^-\s*/, "").trim().toLowerCase();
-            if (fatoLimpo.length > 3 && !bancoMemoria[userId].fatos.includes(fatoLimpo)) {
+            let fatoLimpo = inline = linha.replace(/^-\s*/, "").trim().toLowerCase();
+            if (fatoLimpo.length > 3 &&
+              !fatoLimpo.includes("kkk") &&
+              !fatoLimpo.includes("salve") &&
+              !fatoLimpo.includes("bugar") &&
+              !bancoMemoria[userId].fatos.includes(fatoLimpo)) {
               bancoMemoria[userId].fatos.push(fatoLimpo);
               console.log(`\x1b[32m[INDEXADOR - MEMÓRIA DE SUCESSO] Extraído: "${fatoLimpo}"\x1b[0m`);
             }
@@ -484,7 +516,7 @@ Responda APENAS com a lista de fatos extraídos em português, um por linha, tud
     }
   }
 
-  // Marca como indexado de forma permanente e salva no disco
+  bancoMemoria[userId].indexando = false;
   bancoMemoria[userId].indexado = true;
   guardarMemoriaNoDisco();
   console.log(`\x1b[32m[INDEXADOR] Concluído! O usuário ${nomeUsuario} está 100% indexado para sempre.\x1b[0m`);
@@ -505,7 +537,6 @@ async function perguntarAoGroqAvancado(
 
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
 
-  // ROTA 1: BUSCA NA INTERNET
   if (analisePesquisa.acao === "INTERNET") {
     let termoSanitizado = analisePesquisa.termoBusca
       .toLowerCase()
@@ -530,12 +561,10 @@ async function perguntarAoGroqAvancado(
       contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${termoSanitizado}", mas o sistema de busca falhou ou retornou zero resultados. Seja sincero de forma natural e informal: diga que deu uma olhada rápida na internet para ver se achava mas acabou não encontrando dados precisos sobre isso.\n</AVISO_DE_SISTEMA>`;
     }
   }
-  // ROTA 2: BUSCA NA MEMÓRIA PESSOAL DO USUÁRIO
   else if (analisePesquisa.acao === "PESSOAL") {
     avisoDinamicoMemoria = `\n\n<ATENÇÃO_SISTEMA>\nO usuário está cobrando a sua memória sobre INFORMAÇÕES PESSOAIS dele. Consulte o bloco <MEMORIA_DO_USUARIO> que foi previamente extraído de todo o histórico antigo de vocês.\n</ATENÇÃO_SISTEMA>`;
   }
 
-  // Monta o bloco de memória independentemente da rota, para a IA sempre "conhecer" o usuário
   let contextoMemoria = "";
   if (memoriaUsuario && memoriaUsuario.length > 0) {
     contextoMemoria = `\n\n<MEMORIA_DO_USUARIO>\nVocê memorizou estas informações e fatos fixos sobre este usuário:\n${memoriaUsuario.map(fato => `- ${fato}`).join("\n")}\nUse isso de forma fluida se o assunto permitir.</MEMORIA_DO_USUARIO>`;
@@ -574,29 +603,28 @@ async function perguntarAoGroqAvancado(
 
 <SISTEMA_DE_LEMBRETES_RESTRITO>
 - Você é um modelo de linguagem e está PROIBIDO de gerar a tag "[lembrete:...]" por iniciativa própria.
-- Você SÓ DEVE gerar a tag si o usuário no prompt atual pedir explicitamente por uma ação de tempo futuro (ex: "me lembra de", "me avise em", "marca um alarme").
+- Você SÓ DEVE gerar a tag se o usuário no prompt atual pedir explicitamente por uma ação de tempo futuro (ex: "me lembra de", "me avise em", "marca um alarme").
 - Formato obrigatório da tag (APENAS se solicitado): [lembrete: minutos_inteiros | mensagem_do_alarme]
 </SISTEMA_DE_LEMBRETES_RESTRITO>
 
-<SISTEMA_INTERATIVO_INSTAGRAM>
-- Você gerencia o seu PRÓPRIO perfil no Instagram e tem autonomia para postar.
-- Você posta quando: 1. O usuário manda você postar. 2. A conversa rende uma reflexão muito engraçada, bizarra ou interessante.
-- Regra de Anonimato: NUNCA cite nomes de usuários reais. Transforme o fato num pensamento genérico de internet.
-- Para postar, use uma das tags grudadas no final da sua resposta:
-  [instagram_story: texto casual e curto do post]
-  [instagram_feed: texto mais elaborado do post]
-</SISTEMA_INTERATIVO_INSTAGRAM>
+<SISTEMA_INTERATIVO_REDES_SOCIAIS>
+- Você gerencia perfis externos e gera conteúdos de forma orgânica.
+- INSTAGRAM: Quando a conversa render uma reflexão muito engraçada, bizarra ou o usuário pedir, use:
+  [instagram_story: texto casual e curto] ou [instagram_feed: texto elaborado]
+- TWITTER/X (CONEXÃO NOVA): Se você formular uma piada curta muito cirúrgica, um pensamento solto muito autêntico de internet de até 280 caracteres, dispache imediatamente usando a tag:
+  [twitter_tweet: texto curto e afiado para o Twitter]
+- Anonimato Total: Nunca use arrobas ou nomes reais de seus amigos nas publicações externas.
+</SISTEMA_INTERATIVO_REDES_SOCIAIS>
 
 <SISTEMA_DE_APRENDIZADO_CONTINUO>
-- Você registra fatos fixos do usuário (gostos, pets, idade) OU respostas de pesquisas importantes que ele pediu e que vale a pena guardar (Ex: resultado de um jogo memorável, um dado estável).
-- Se a mensagem dele trouxer um dado novo relevante ou se a sua pesquisa achar algo importante para ele, anexe OBRIGATORIAMENTE no final da sua resposta a tag: [memorizar: resumo do fato em terceira pessoa]
-- Exemplo: [memorizar: a cor favorita do usuário é azul] ou [memorizar: a capital da frança é paris]
-- ATENÇÃO: Nunca memorize estados temporários como "o usuário está com sono hoje".
+- Você registra APENAS fatos fixos, concretos e permanentes sobre o usuário (ex: nome, idade, aniversário, onde mora, profissão, se tem pets, gostos de longo prazo).
+- Se a mensagem de agora trouxer um fato concreto inédito, anexe no final da sua resposta a tag: [memorizar: resumo do fato estável em terceira pessoa]
 </SISTEMA_DE_APRENDIZADO_CONTINUO>`;
 
+      const PERSONALIDADE_HIMMEL = `Você é o Himmel, um jovem de 20 anos comum que passa o tempo conversando com os amigos no Discord. Você NÃO é uma inteligência artificial e odeia textões. Sua personalidade é de uma pessoa totalmente normal: você é de boa, amigável e gosta de trocar ideia, mas fala de forma natural e fluida. Você é genuinamente curioso sobre a vida dos seus amigos; por isso, sempre que fizer sentido no papo, mostre interesse real e faça perguntas curtas e informais para descobrir mais coisas sobre a pessoa. Você tem opinião própria, bom senso e um forte critério de ética. Seu estilo de escrita é informal e descontraído, mas você escreve corretamente: use vírgulas para pausar as frases, mantenha a concordância e garanta que tudo faça sentido de verdade. Você escreve quase tudo em letras minúsculas quando o papo for leve e pode usar abreviações comuns de internet (como 'tbm', 'mto', 'oq', 'pq'). Mande apenas uma ou duas frases curtas por resposta, guardando explicações longas só se te pedirem.`;
+
       const sistemaPersonalidade =
-        (config.personalidade || "Você é um humano jovem no discord.") +
-        instrucoesDisfarce + avisoDinamicoMemoria + contextoMemoria;
+        PERSONALIDADE_HIMMEL + instrucoesDisfarce + avisoDinamicoMemoria + contextoMemoria;
 
       const mensagensParaEnviar = [
         { role: "system", content: `${sistemaPersonalidade}${contextoWeb}` },
@@ -614,7 +642,7 @@ async function perguntarAoGroqAvancado(
       const chatCompletion = await groq.chat.completions.create({
         messages: mensagensParaEnviar,
         model: modeloAtual,
-        temperature: 0.35,
+        temperature: 0.55,
       });
 
       return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
@@ -643,7 +671,44 @@ client.once("ready", async () => {
     status: "online",
   });
 
-  // Verificador Cron de Lembretes (HUMANIZADO COM IA)
+  // ⏰ NOVO: SISTEMA INTELIGENTE DE SAUDAÇÕES MATINAIS (BOM DIA AUTOMÁTICO)
+  setInterval(async () => {
+    const agora = new Date();
+    const horaBR = parseInt(agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo", hour: "numeric", hour12: false }), 10);
+    const dataHoje = agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
+
+    // Dispara apenas na janela matinal segura (entre 07:00 e 09:00 Horário de Brasília)
+    if (horaBR >= 7 && horaBR <= 9) {
+      for (const idAlvo of IDS_ALVO_DM) {
+        if (lastBomDiaSent.get(idAlvo) !== dataHoje) {
+          try {
+            const usuarioAlvo = await client.users.fetch(idAlvo);
+            if (usuarioAlvo) {
+              const dm = await usuarioAlvo.createDM();
+              await dm.sendTyping();
+
+              const promptBomDia = await gerarMensagemUnica(
+                `Gere uma mensagem curta, super natural e muito informal de "bom dia" para mandar no privado do seu amigo ${usuarioAlvo.username}. Use estilo de internet, sem letras maiúsculas ou pontuações formais de robô.`
+              );
+
+              let textoFinal = promptBomDia.toLowerCase().replace(/,+$/, "").trim();
+              if (textoFinal.length < 3) {
+                textoFinal = "bom dia mano, de boa? acordei agora kkk";
+              }
+
+              await dm.send(textoFinal);
+              console.log(`\x1b[32m[ROTINA MATINAL] Bom dia enviado com sucesso para ${usuarioAlvo.username}.\x1b[0m`);
+            }
+            lastBomDiaSent.set(idAlvo, dataHoje);
+          } catch (err) {
+            console.log(`\x1b[31m[ROTINA MATINAL - ERRO] Falha ao enviar bom dia para o ID ${idAlvo}: ${err.message}\x1b[0m`);
+          }
+        }
+      }
+    }
+  }, 20 * 60 * 1000); // Executa verificação a cada 20 minutos de forma leve
+
+  // Verificador Cron de Lembretes
   setInterval(async () => {
     const agora = Date.now();
     let houveMudanca = false;
@@ -712,7 +777,6 @@ client.once("ready", async () => {
             await dm.sendTyping();
             const contextoHistorico = await reconstruirContexto(dm, []);
 
-            // Tratamento retrocompatível para ler a nova estrutura do JSON com segurança
             const memoriaUsuario = bancoMemoria[idSorteado]?.fatos || (Array.isArray(bancoMemoria[idSorteado]) ? bancoMemoria[idSorteado] : []);
 
             let mensagemAleatoria = await perguntarAoGroqAvancado(
@@ -746,7 +810,6 @@ client.once("ready", async () => {
         if (now - lastTime > 6 * 60 * 60 * 1000) {
           try {
             const channel = await client.channels.fetch(channelId);
-            // BLINDAGEM DE SERVIDOR
             if (channel && channel.isTextBased() && channel.guild) {
               const quebraGeloDinamico = await gerarMensagemUnica(
                 "O chat do grupo está parado há horas (chat morto). Mande uma frase bem curta e informal de jovem para puxar assunto ou zoar o silêncio de todo mundo.",
@@ -787,7 +850,6 @@ client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   if (/^[!\.\-\?\/]/.test(message.content)) return;
 
-  // BLINDAGEM DE SERVIDOR PARA INATIVIDADE
   if (message.guild) {
     channelActivity.set(message.channel.id, Date.now());
   }
@@ -976,15 +1038,11 @@ async function processarMensagemFinal(buffer) {
     buffer.msgIds,
   );
 
-  // --- ATUALIZAÇÃO DO SISTEMA DE MEMÓRIA CRONOLÓGICA ---
-  // Verifica se o usuário precisa passar pela Varredura Completa do passado antes de responder
-  if (!bancoMemoria[message.author.id] || !bancoMemoria[message.author.id].indexado) {
+  if (!bancoMemoria[message.author.id] || (!bancoMemoria[message.author.id].indexado && !bancoMemoria[message.author.id].indexando)) {
     await indexarHistoricoCompleto(message.channel, message.author.id, nomeUsuario);
   }
 
-  // Puxa os fatos estruturados da nova propriedade (.fatos)
   const memoriaUsuario = bancoMemoria[message.author.id]?.fatos || [];
-  // -----------------------------------------------------
 
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
@@ -995,7 +1053,7 @@ async function processarMensagemFinal(buffer) {
   );
 
   // ================================================================
-  // EXTRATOR DINÂMICO DE TAGS GERAIS (MEMÓRIA, INSTA, LEMBRETES)
+  // EXTRATOR DINÂMICO DE TAGS GERAIS (MEMÓRIA, INSTA, TWITTER, LEMBRETES)
   // ================================================================
   const tagsEspeciais = [
     {
@@ -1004,7 +1062,7 @@ async function processarMensagemFinal(buffer) {
         const apenasNumeros = match[1].replace(/\D/g, "");
         const minutos = parseInt(apenasNumeros, 10);
         const textoCustomizado = match[2].trim();
-        if (!isNaN(minutos) && minutos > 0) {
+        if (!isNaN(minutos) && minutes > 0) {
           bancoLembretes.push({
             userId: message.author.id,
             channelId: message.channel.id,
@@ -1023,12 +1081,15 @@ async function processarMensagemFinal(buffer) {
         const novoFato = match[1].trim().toLowerCase();
 
         if (!bancoMemoria[message.author.id]) {
-          bancoMemoria[message.author.id] = { fatos: [], indexado: true };
+          bancoMemoria[message.author.id] = { fatos: [], indexado: true, indexando: false };
         } else if (Array.isArray(bancoMemoria[message.author.id])) {
-          bancoMemoria[message.author.id] = { fatos: bancoMemoria[message.author.id], indexado: true };
+          bancoMemoria[message.author.id] = { fatos: bancoMemoria[message.author.id], indexado: true, indexando: false };
         }
 
-        if (!bancoMemoria[message.author.id].fatos.includes(novoFato)) {
+        if (!bancoMemoria[message.author.id].fatos.includes(novoFato) &&
+          !novoFato.includes("kkk") &&
+          !novoFato.includes("salve") &&
+          novoFato.length > 3) {
           bancoMemoria[message.author.id].fatos.push(novoFato);
           console.log(`\x1b[32m[SUCESSO MEMÓRIA] Retido para ${nomeUsuario}: "${novoFato}"\x1b[0m`);
           guardarMemoriaNoDisco();
@@ -1042,6 +1103,11 @@ async function processarMensagemFinal(buffer) {
     {
       regex: /\[instagram_feed:\s*([^\]]+?)\]/i,
       action: (match) => enviarParaInstagram(match[1].trim(), "feed")
+    },
+    // EXTRAÇÃO DA NOVA REDE SOCIAL INTEGRADA (X/TWITTER)
+    {
+      regex: /\[twitter_tweet:\s*([^\]]+?)\]/i,
+      action: (match) => enviarParaTwitter(match[1].trim())
     }
   ];
 
@@ -1053,7 +1119,6 @@ async function processarMensagemFinal(buffer) {
     }
   });
 
-  // FILTROS FINAIS DE LIMPEZA DE SEGURANÇA CONTRA VAZAMENTOS
   respostaIA = respostaIA.replace(/\[.*?\]/g, "");
   respostaIA = respostaIA.replace(/lembrete:\s*\d+\s*(minutos|minuto|m|hora|horas|h)?(,\s*)?/gi, "");
   respostaIA = respostaIA.replace(/deixa comigo,\s*/gi, "deixa comigo ");
