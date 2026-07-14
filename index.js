@@ -46,13 +46,11 @@ const TWITTER_WEBHOOK_URL = process.env.TWITTER_WEBHOOK || "COLE_AQUI_SEU_WEBHOO
 // ================================================================
 // VARIÁVEIS DE SISTEMAS HUMANIZADOS E ALVOS
 // ================================================================
-// ID Novo adicionado com sucesso à lista de monitoramento e DMs expontâneas
 const IDS_ALVO_DM = ["1310397024541212672", "760510107988918333", "1309344503617945651"];
-const userFloodControl = new Map();
 const lastUserMessage = new Map();
 const channelActivity = new Map();
 const userMessageBuffers = new Map();
-const lastBomDiaSent = new Map(); // Controle para não repetir o bom dia no mesmo dia
+const bomDiaAgendados = new Set();
 
 let config = {};
 if (fs.existsSync("./config.json")) {
@@ -74,9 +72,42 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
   ],
   partials: [1, 3],
 });
+
+// -----------------------------------------------------------
+// 💾 GESTOR DE COOLDOWNS PERSISTENTES (ESCUDO ANTI-REINÍCIO)
+// -----------------------------------------------------------
+let bancoCooldowns = {
+  lastBomDiaSent: {},
+  lastSpontaneousDM: 0,
+  lastDoubleText: {},
+  presence: {},
+  userFloodControl: {}
+};
+
+if (fs.existsSync("./cooldowns.json")) {
+  try {
+    bancoCooldowns = JSON.parse(fs.readFileSync("./cooldowns.json", "utf-8"));
+    if (!bancoCooldowns.lastBomDiaSent) bancoCooldowns.lastBomDiaSent = {};
+    if (!bancoCooldowns.lastDoubleText) bancoCooldowns.lastDoubleText = {};
+    if (!bancoCooldowns.presence) bancoCooldowns.presence = {};
+    if (!bancoCooldowns.userFloodControl) bancoCooldowns.userFloodControl = {};
+    console.log(`\x1b[34m[LOG COOLDOWNS] Banco persistente carregado com sucesso.\x1b[0m`);
+  } catch (e) {
+    console.log(`\x1b[31m[LOG ERRO DISCO] Cooldowns corrompido, iniciando limpo.\x1b[0m`);
+  }
+}
+
+function guardarCooldownsNoDisco() {
+  try {
+    fs.writeFileSync("./cooldowns.json", JSON.stringify(bancoCooldowns, null, 2), "utf-8");
+  } catch (err) {
+    console.log(`\x1b[31m[LOG ERRO DISCO] Falha ao salvar cooldowns: ${err.message}\x1b[0m`);
+  }
+}
 
 // -----------------------------------------------------------
 // 💾 GESTOR DE LEMBRETES PERSISTENTES
@@ -102,9 +133,6 @@ function guardarLembretesNoDisco() {
       "./lembretes.json",
       JSON.stringify(bancoLembretes, null, 2),
       "utf-8",
-    );
-    console.log(
-      `\x1b[36m[LOG DISCO] Banco de lembretes updated com sucesso.\x1b[0m`,
     );
   } catch (err) {
     console.log(
@@ -138,9 +166,6 @@ function guardarMemoriaNoDisco() {
       JSON.stringify(bancoMemoria, null, 2),
       "utf-8",
     );
-    console.log(
-      `\x1b[36m[LOG DISCO] Mapa de memória de longo prazo  salvo no disco.\x1b[0m`,
-    );
   } catch (err) {
     console.log(
       `\x1b[31m[LOG ERRO DISCO] Falha ao escrever arquivo de memória: ${err.message}\x1b[0m`,
@@ -149,15 +174,93 @@ function guardarMemoriaNoDisco() {
 }
 
 // -----------------------------------------------------------
+// ✨ SANEAMENTO E HIGIENIZAÇÃO DE USERNAMES (HUMANIZADO)
+// -----------------------------------------------------------
+function sanitizarNome(nome) {
+  if (!nome) return "mano";
+  let limpo = nome.replace(/[\d\._\-#]/g, "").trim();
+  if (limpo.length === 0) return "mano";
+  return limpo.toLowerCase();
+}
+
+// -----------------------------------------------------------
+// ✍️ SISTEMA DE ERROS DE DIGITAÇÃO E CORREÇÃO ATIVA (3% CHANCE)
+// -----------------------------------------------------------
+function processarDigitacaoHumana(texto) {
+  const CHANCE_ERRO = 0.03;
+  if (Math.random() > CHANCE_ERRO || texto.length < 15) {
+    return { textoOriginal: texto, textoComErro: texto, correcao: null };
+  }
+
+  const palavras = texto.split(" ");
+  const indicesCandidatos = palavras
+    .map((p, idx) => ({ p, idx }))
+    .filter(item => item.p.length > 5 && !item.p.includes("<") && !item.p.includes("@") && !item.p.includes("http"));
+
+  if (indicesCandidatos.length === 0) {
+    return { textoOriginal: texto, textoComErro: texto, correcao: null };
+  }
+
+  const alvo = indicesCandidatos[Math.floor(Math.random() * indicesCandidatos.length)];
+  const palavraOriginal = alvo.p;
+
+  let palavraComErro = palavraOriginal;
+  const idxLetra = Math.floor(Math.random() * (palavraOriginal.length - 2)) + 1;
+
+  palavraComErro =
+    palavraOriginal.substring(0, idxLetra) +
+    palavraOriginal[idxLetra + 1] +
+    palavraOriginal[idxLetra] +
+    palavraOriginal.substring(idxLetra + 2);
+
+  palavras[alvo.idx] = palavraComErro;
+  const textoComErro = palavras.join(" ");
+
+  const vaiCorrigir = Math.random() < 0.40;
+  const correcao = vaiCorrigir ? `${palavraOriginal}*` : null;
+
+  return { textoOriginal: texto, textoComErro, correcao };
+}
+
+// -----------------------------------------------------------
+// 🔋 SISTEMA DINÂMICO DE VIBE E ENERGIA POR HORÁRIO
+// -----------------------------------------------------------
+function obterVibeDoHorario() {
+  const agora = new Date();
+  const horaBR = parseInt(agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo", hour: "numeric", hour12: false }), 10);
+  const diaSemana = agora.getDay();
+
+  let promptVibe = "";
+  let tempVibe = 0.55;
+  let delayMultiplier = 1.0;
+
+  if (diaSemana === 1 && horaBR >= 7 && horaBR < 12) {
+    promptVibe = "\n<VIBE_DO_MOMENTO>Você acabou de começar a segunda-feira de manhã. Está muito cansado, meio indisposto e com preguiça. Digite um pouco mais devagar e não queira textão. Respostas mais curtas e com cara de sono.</VIBE_DO_MOMENTO>";
+    tempVibe = 0.45;
+    delayMultiplier = 1.6;
+  }
+  else if ((diaSemana === 5 || diaSemana === 6) && (horaBR >= 18 || horaBR < 2)) {
+    promptVibe = "\n<VIBE_DO_MOMENTO>É final de semana à noite! Você está super animado, descontraído, quer rir bastante (ksksk, kkkk) e é propenso a brincadeiras de internet.</VIBE_DO_MOMENTO>";
+    tempVibe = 0.70;
+    delayMultiplier = 0.8;
+  }
+  else if (horaBR >= 2 && horaBR < 6) {
+    promptVibe = "\n<VIBE_DO_MOMENTO>Já passou das duas da madrugada. Você está digitando com muito sono, quase dormindo no teclado. Use termos como 'carai to caindo de sono', 'vou capotar'.</VIBE_DO_MOMENTO>";
+    tempVibe = 0.50;
+    delayMultiplier = 1.8;
+  }
+
+  return { promptVibe, tempVibe, delayMultiplier };
+}
+
+// -----------------------------------------------------------
 // 🚀 INJECTOR DE CONEXÕES MULTI-REDES (MAKE.COM)
 // -----------------------------------------------------------
 function enviarParaInstagram(conteudoPost, tipoPost = "story") {
   if (!INSTAGRAM_WEBHOOK_URL || INSTAGRAM_WEBHOOK_URL.includes("COLE_AQUI")) {
-    console.log("\x1b[31m[INSTAGRAM API] Erro: Link do Webhook do Make não foi configurado.\x1b[0m");
+    console.log("\x1b[31m   └── [INSTAGRAM API] Erro: Link do Webhook do Make não configurado.\x1b[0m");
     return;
   }
-  console.log(`\x1b[35m[INSTAGRAM API] Despachando (${tipoPost.toUpperCase()}) para o Make: "${conteudoPost}"\x1b[0m`);
-
   try {
     const dadosBrutos = JSON.stringify({ texto: conteudoPost, tipo: tipoPost });
     const opcoes = {
@@ -167,26 +270,16 @@ function enviarParaInstagram(conteudoPost, tipoPost = "story") {
         "Content-Length": Buffer.byteLength(dadosBrutos)
       }
     };
-    const requisicao = https.request(INSTAGRAM_WEBHOOK_URL, opcoes, (resposta) => {
-      console.log(`\x1b[32m[INSTAGRAM API] Resposta recebida do Make. Status: ${resposta.statusCode}\x1b[0m`);
-    });
-    requisicao.on("error", (erro) => {
-      console.log(`\x1b[31m[INSTAGRAM API - ERRO] Falha no envio HTTP: ${erro.message}\x1b[0m`);
-    });
+    const requisicao = https.request(INSTAGRAM_WEBHOOK_URL, opcoes);
     requisicao.write(dadosBrutos);
     requisicao.end();
-  } catch (err) {
-    console.log(`\x1b[31m[INSTAGRAM API - ERRO] Falha crítica: ${err.message}\x1b[0m`);
-  }
+  } catch (err) { }
 }
 
 function enviarParaTwitter(conteudoTweet) {
   if (!TWITTER_WEBHOOK_URL || TWITTER_WEBHOOK_URL.includes("COLE_AQUI")) {
-    console.log("\x1b[31m[X-TWITTER API] Aviso: Webhook do Twitter não configurado. Ignorando disparo automático.\x1b[0m");
     return;
   }
-  console.log(`\x1b[35m[X-TWITTER API] Despachando micro-post para o Make: "${conteudoTweet}"\x1b[0m`);
-
   try {
     const dadosBrutos = JSON.stringify({ tweet: conteudoTweet, timestamp: Date.now() });
     const opcoes = {
@@ -196,15 +289,10 @@ function enviarParaTwitter(conteudoTweet) {
         "Content-Length": Buffer.byteLength(dadosBrutos)
       }
     };
-    const requisicao = https.request(TWITTER_WEBHOOK_URL, opcoes, (resposta) => {
-      console.log(`\x1b[32m[X-TWITTER API] Post enviado ao Make. Status: ${resposta.statusCode}\x1b[0m`);
-    });
-    requisicao.on("error", (err) => console.log(`\x1b[31m[X-TWITTER ERRO] Falha HTTP: ${err.message}\x1b[0m`));
+    const requisicao = https.request(TWITTER_WEBHOOK_URL, opcoes);
     requisicao.write(dadosBrutos);
     requisicao.end();
-  } catch (err) {
-    console.log(`\x1b[31m[X-TWITTER CRÍTICO] Erro: ${err.message}\x1b[0m`);
-  }
+  } catch (err) { }
 }
 
 // -----------------------------------------------------------
@@ -224,52 +312,48 @@ if (fs.existsSync("./commands")) {
 }
 
 // -----------------------------------------------------------
-// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE (CÉREBRO IA TRIPLO)
+// 🧠 ALGORITMO DE TRIAGEM INTELIGENTE COM EXTRAÇÃO DE PENSAMENTO
 // -----------------------------------------------------------
 async function avaliarNecessidadeDePesquisa(textoUsuario) {
   try {
-    const promptTriagem = `Você é um classificador lógico RÍGIDO de um bot do Discord. Categorize a mensagem atual escolhendo UMA das 3 rotas abaixo:
+    const promptTriagem = `Você é o módulo de decisão cognitiva do Himmel. Analise a mensagem recebida e defina se é estritamente necessário buscar dados atualizados na internet ou resgatar dados pessoais estruturados do usuário na memória interna.
 
-1. "INTERNET | termo_de_busca_otimizado" -> Se a pergunta for sobre o mundo real, notícias, clima, esportes, lançamentos ou fatos que exigem pesquisar no Google.
-2. "PESSOAL" -> Se o usuário estiver perguntando sobre informações PESSOAIS dele mesmo ou testando a sua memória sobre conversas antigas (ex: "qual minha cor favorita?", "como é meu nome?", "lembra o que te falei?").
-3. "NAO" -> Para todo o resto: conversa fiada, piadas, pedir pra você memorizar algo, pedir pra postar no instagram, saudações ou opiniões.
+Responda RIGIDAMENTE no formato abaixo, respeitando as quebras de linha:
+PENSAMENTO: [Escreva aqui, em uma frase curta, por que você escolheu essa rota e qual sua linha de raciocínio lógico sobre o que a mensagem está cobrando.]
+ROTA: [Escolha apenas uma das 3 opções abaixo:
+  - "INTERNET | termo_otimizado_de_busca" (se precisar de fatos mundanos, futebol, tempo real, notícias, clima ou datas atuais)
+  - "PESSOAL" (se o usuário estiver cobrando o que você sabe sobre ele, testando sua memória ou dados pessoais dele)
+  - "NAO" (se for papo fiado, piadas, responder coisas comuns ou memorizar dados novos)]
 
-Mensagem atual do usuário: "${textoUsuario}"
-Responda APENAS com a ação correspondente (INTERNET, PESSOAL ou NAO):`;
+Mensagem do usuário: "${textoUsuario}"`;
 
     const triagemCompletion = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptTriagem }],
       model: "llama-3.1-8b-instant",
-      temperature: 0.0,
-      max_tokens: 30,
+      temperature: 0.1,
+      max_tokens: 150,
     });
 
-    const respostaTriagem =
-      triagemCompletion.choices[0]?.message?.content?.trim().toUpperCase() || "NAO";
+    const respostaTriagem = triagemCompletion.choices[0]?.message?.content?.trim() || "";
 
-    if (respostaTriagem.includes("INTERNET")) {
-      const partes = respostaTriagem.split("|");
-      const termoExtraido = partes.length > 1 ? partes[1].trim() : textoUsuario;
-      console.log(
-        `\x1b[35m[IA TRIAGEM] Rota: INTERNET. Busca otimizada gerada: "${termoExtraido}"\x1b[0m`,
-      );
-      return { acao: "INTERNET", termoBusca: termoExtraido };
-    } else if (respostaTriagem.includes("PESSOAL")) {
-      console.log(
-        `\x1b[36m[IA TRIAGEM] Rota: PESSOAL. Vai vasculhar o banco de memória JSON do usuário.\x1b[0m`,
-      );
-      return { acao: "PESSOAL", termoBusca: "" };
+    // Extração via RegExp para evitar bugs de formato
+    const pensamentoMatch = respostaTriagem.match(/PENSAMENTO:\s*(.*)/i);
+    const rotaMatch = respostaTriagem.match(/ROTA:\s*(.*)/i);
+
+    const pensamento = pensamentoMatch ? pensamentoMatch[1].trim() : "Linha de raciocínio padrão de fluxo conversacional.";
+    const rotaRaw = rotaMatch ? rotaMatch[1].trim() : "NAO";
+
+    if (rotaRaw.toUpperCase().includes("INTERNET")) {
+      const partes = rotaRaw.split("|");
+      const termoExtraido = partes.length > 1 ? partes[1].trim() : "informações recentes";
+      return { acao: "INTERNET", termoBusca: termoExtraido, pensamento };
+    } else if (rotaRaw.toUpperCase().includes("PESSOAL")) {
+      return { acao: "PESSOAL", termoBusca: "", pensamento };
     }
 
-    console.log(
-      `\x1b[32m[IA TRIAGEM] Rota: NAO precisa de internet ou busca em banco.\x1b[0m`,
-    );
-    return { acao: "NAO", termoBusca: "" };
+    return { acao: "NAO", termoBusca: "", pensamento };
   } catch (err) {
-    console.log(
-      `\x1b[31m[IA TRIAGEM - ERRO] Falha ao consultar Groq para triagem.\x1b[0m`,
-    );
-    return { acao: "NAO", termoBusca: "" };
+    return { acao: "NAO", termoBusca: "", pensamento: "Não foi possível concluir o mapeamento lógico devido a uma falha na API." };
   }
 }
 
@@ -277,9 +361,6 @@ Responda APENAS com a ação correspondente (INTERNET, PESSOAL ou NAO):`;
 // 🔍 SISTEMA DE LOGS DETALHADOS PARA A PESQUISA WEB
 // -----------------------------------------------------------
 function buscarNaWebNativo(query) {
-  console.log(
-    `\x1b[33m[SISTEMA PESQUISA] Iniciando busca externa para o termo: "${query}"\x1b[0m`,
-  );
   return new Promise((resolve) => {
     const urlApi = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
     https
@@ -290,16 +371,10 @@ function buscarNaWebNativo(query) {
           try {
             const json = JSON.parse(data);
             if (json.AbstractText) {
-              console.log(
-                `\x1b[32m[SISTEMA PESQUISA] Resposta obtida via API Oficial.\x1b[0m`,
-              );
               return resolve(`Resumo: ${json.AbstractText}`);
             }
           } catch (e) { }
 
-          console.log(
-            `\x1b[33m[SISTEMA PESQUISA] API Oficial sem dados diretos. Ativando fallback de Raspagem HTML...\x1b[0m`,
-          );
           const urlHtml = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
           https
             .get(
@@ -317,9 +392,6 @@ function buscarNaWebNativo(query) {
                     htmlData.includes("ddg-captcha") ||
                     htmlData.length < 1000
                   ) {
-                    console.log(
-                      `\x1b[31m[SISTEMA PESQUISA - BLOQUEIO] DuckDuckGo barrou a raspagem HTML (Captcha detectado).\x1b[0m`,
-                    );
                     return resolve("");
                   }
                   const regex =
@@ -336,9 +408,6 @@ function buscarNaWebNativo(query) {
                       .trim();
                     if (limpo.length > 15) resultados.push(limpo);
                   }
-                  console.log(
-                    `\x1b[32m[SISTEMA PESQUISA] Raspagem HTML finalizada. Encontrados ${resultados.length} trechos úteis.\x1b[0m`,
-                  );
                   resolve(resultados.join(" | "));
                 });
               },
@@ -363,9 +432,6 @@ async function gerarMensagemUnica(comandoInstrucao) {
     });
     return chatCompletion.choices[0]?.message?.content || "";
   } catch (e) {
-    console.log(
-      `\x1b[31m[LOG ERRO API] Falha na chamada secundária da Groq: ${e.message}\x1b[0m`,
-    );
     return "";
   }
 }
@@ -403,9 +469,6 @@ async function reconstruirContexto(channel, ignoreIds = []) {
           txtMin.includes("formato:") ||
           txtMin.includes("lembretes:")
         ) {
-          console.log(
-            `\x1b[33m[SEGURANÇA] Mensagem antiga de bug do bot ignorada no histórico para evitar loop.\x1b[0m`,
-          );
           return;
         }
       }
@@ -416,10 +479,10 @@ async function reconstruirContexto(channel, ignoreIds = []) {
         content:
           msg.author.id === client.user.id
             ? conteudo
-            : `[${nome}]: ${conteudo}`,
+            : `[${sanitizarNome(nome)}]: ${conteudo}`,
       });
     });
-    return mensajes;
+    return mensagens;
   } catch (e) {
     return [];
   }
@@ -437,7 +500,9 @@ async function indexarHistoricoCompleto(channel, userId, nomeUsuario) {
   if (bancoMemoria[userId].indexado || bancoMemoria[userId].indexando) return;
   bancoMemoria[userId].indexando = true;
 
-  console.log(`\x1b[33m[INDEXADOR] ${nomeUsuario} não está indexado. Iniciando varredura COMPLETA até o início do chat...\x1b[0m`);
+  console.log(`\x1b[33m⚡ [MÓDULO MEMÓRIA - INDEXADOR ARQUEOLÓGICO]`);
+  console.log(`   ├── Iniciando varredura de conversas antigas para: ${nomeUsuario} (ID: ${userId})`);
+  console.log(`   └── Estado: Buscando mensagens no canal... \x1b[0m`);
 
   let ultimoId = null;
   let textosDoUsuario = [];
@@ -461,15 +526,11 @@ async function indexarHistoricoCompleto(channel, userId, nomeUsuario) {
 
       await new Promise(r => setTimeout(r, 250));
     } catch (e) {
-      console.log(`\x1b[31m[INDEXADOR - ERRO] Falha ao baixar bloco: ${e.message}\x1b[0m`);
       break;
     }
   }
 
-  console.log(`\x1b[34m[INDEXADOR] Varredura concluída! Lidas ${totalMensagensLidas} mensagens totais. Encontradas ${textosDoUsuario.length} mensagens de ${nomeUsuario}.\x1b[0m`);
-
   if (textosDoUsuario.length > 0) {
-    console.log(`\x1b[35m[INDEXADOR] Enviando mensagens em blocos para extração de memórias no Groq...\x1b[0m`);
     const tamanhoLote = 40;
 
     for (let i = 0; i < textosDoUsuario.length; i += tamanhoLote) {
@@ -480,13 +541,13 @@ async function indexarHistoricoCompleto(channel, userId, nomeUsuario) {
         const promptMassa = `Você é um extrator lógico de memórias estáveis. Analise o lote de mensagens antigas enviadas por um usuário no Discord e extraia APENAS fatos fixos, permanentes e preferências reais de longo prazo (ex: nome, idade, aniversário, cidade, se tem animais de estimação, jogos favoritos de verdade, profissão ou gostos que definem a pessoa).
 
 CRÍTICO:
-- Ignore TOTALMENTE conversas fiadas, saudações (ex: "salve", "eai"), reações (ex: "mds kkkk", "carai"), risadas, xingamentos, gírias isoladas ou avisos temporários do chat (ex: "to bem vei", "vc tinha morrido", "não para de bugar").
-- Não extraia comandos ou pedidos de alarme que ele fez no passado.
+- Ignore TOTALMENTE conversas fiadas, saudações, risadas, xingamentos, gírias ou avisos temporários do chat.
+- Não extraia comandos de alarme.
 
 Histórico de mensagens:
 ${blocoTexto}
 
-Responda APENAS com a lista de fatos estáveis em português (um por linha, em minúsculas, sem números e sem pontuação). Se o bloco só contiver bobeira, chat temporário ou nada marcante, responda estritamente com a palavra: NADA`;
+Responda APENAS com a lista de fatos estáveis em português (um por linha, em minúsculas, sem números e sem pontuação). Se o bloco só contiver bobeira, responda estritamente com a palavra: NADA`;
 
         const extracao = await groq.chat.completions.create({
           messages: [{ role: "user", content: promptMassa }],
@@ -499,31 +560,30 @@ Responda APENAS com a lista de fatos estáveis em português (um por linha, em m
         if (resultado !== "NADA" && !resultado.includes("NADA")) {
           const linhas = resultado.split("\n");
           linhas.forEach(linha => {
-            let fatoLimpo = inline = linha.replace(/^-\s*/, "").trim().toLowerCase();
-            if (fatoLimpo.length > 3 &&
-              !fatoLimpo.includes("kkk") &&
-              !fatoLimpo.includes("salve") &&
-              !fatoLimpo.includes("bugar") &&
-              !bancoMemoria[userId].fatos.includes(fatoLimpo)) {
-              bancoMemoria[userId].fatos.push(fatoLimpo);
-              console.log(`\x1b[32m[INDEXADOR - MEMÓRIA DE SUCESSO] Extraído: "${fatoLimpo}"\x1b[0m`);
+            let fatoLimpo = line => linha.replace(/^-\s*/, "").trim().toLowerCase();
+            let final = fatoLimpo(linha);
+            if (final.length > 3 &&
+              !final.includes("kkk") &&
+              !final.includes("salve") &&
+              !final.includes("bugar") &&
+              !bancoMemoria[userId].fatos.includes(final)) {
+              bancoMemoria[userId].fatos.push(final);
             }
           });
         }
-      } catch (err) {
-        console.log(`\x1b[31m[INDEXADOR - ERRO IA] Erro no lote ${i}: ${err.message}\x1b[0m`);
-      }
+      } catch (err) { }
     }
   }
 
   bancoMemoria[userId].indexando = false;
   bancoMemoria[userId].indexado = true;
   guardarMemoriaNoDisco();
-  console.log(`\x1b[32m[INDEXADOR] Concluído! O usuário ${nomeUsuario} está 100% indexado para sempre.\x1b[0m`);
+  console.log(`\x1b[32m✅ [MÓDULO MEMÓRIA - INDEXADO]`);
+  console.log(`   └── Varredura concluída. ${bancoMemoria[userId].fatos.length} fatos de longo prazo armazenados para ${nomeUsuario}.\x1b[0m`);
 }
 
 // -----------------------------------------------------------
-// CHAMADA PRINCIPAL DA IA (INTEGRADA COM MEMÓRIA, INSTA E PESQUISA)
+// CHAMADA PRINCIPAL DA IA (INTEGRADA COM MEMÓRIA E PESQUISA)
 // -----------------------------------------------------------
 async function perguntarAoGroqAvancado(
   idUsuario,
@@ -537,6 +597,21 @@ async function perguntarAoGroqAvancado(
 
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
 
+  // 🧠 LOG DE RACIOCÍNIO DA IA
+  console.log(`\x1b[35m🧠 [MÓDULO COGNITIVO - TRIAGEM]`);
+  console.log(`   ├── Usuário: ${nomeUsuario} (ID: ${idUsuario})`);
+  console.log(`   ├── Pensamento do Himmel: "${analisePesquisa.pensamento}"`);
+
+  let rotaVisual = "";
+  if (analisePesquisa.acao === "INTERNET") {
+    rotaVisual = `🌐 PESQUISA WEB (Termo proposto: "${analisePesquisa.termoBusca}")`;
+  } else if (analisePesquisa.acao === "PESSOAL") {
+    rotaVisual = `💾 LEITURA DE MEMÓRIA LOCAL (Dados Pessoais)`;
+  } else {
+    rotaVisual = `💬 CONVERSA FLUIDA / FLUXO PADRÃO (Sem pesquisas)`;
+  }
+  console.log(`   └── Decisão de Rota: ${rotaVisual}\x1b[0m`);
+
   if (analisePesquisa.acao === "INTERNET") {
     let termoSanitizado = analisePesquisa.termoBusca
       .toLowerCase()
@@ -546,22 +621,25 @@ async function perguntarAoGroqAvancado(
       .replace(/[?!.]/g, "")
       .trim();
 
-    console.log(
-      `\x1b[36m[SISTEMA PESQUISA] Termo original: "${analisePesquisa.termoBusca}" -> Sanitizado para: "${termoSanitizado}"\x1b[0m`,
-    );
+    console.log(`\x1b[33m🌐 [MÓDULO PESQUISA - EXECUÇÃO]`);
+    console.log(`   ├── Termo de busca: "${termoSanitizado}"`);
+    console.log(`   └── Executando: Chamando DuckDuckGo... \x1b[0m`);
 
     const dadosBusca = await buscarNaWebNativo(termoSanitizado);
 
     if (dadosBusca && dadosBusca.length > 5) {
+      console.log(`\x1b[32m✅ [MÓDULO PESQUISA - SUCESSO]`);
+      console.log(`   └── Dados de internet integrados à resposta de forma invisível.\x1b[0m`);
       contextoWeb = `\n\n<DADOS_DA_INTERNET>\n${dadosBusca}\n</DADOS_DA_INTERNET>\nLeia isso para responder com precisão factual absoluta, mas finja que já sabia de cabeça.`;
     } else {
-      console.log(
-        `\x1b[31m[LOG IA] Avisando o modelo que a busca na web falhou ou retornou vazia.\x1b[0m`,
-      );
+      console.log(`\x1b[31m⚠️ [MÓDULO PESQUISA - FALHA]`);
+      console.log(`   └── Sem retorno da pesquisa. Ativando resposta de fallback natural.\x1b[0m`);
       contextoWeb = `\n\n<AVISO_DE_SISTEMA>\nVocê tentou pesquisar na internet por informações recentes sobre "${termoSanitizado}", mas o sistema de busca falhou ou retornou zero resultados. Seja sincero de forma natural e informal: diga que deu uma olhada rápida na internet para ver se achava mas acabou não encontrando dados precisos sobre isso.\n</AVISO_DE_SISTEMA>`;
     }
   }
   else if (analisePesquisa.acao === "PESSOAL") {
+    console.log(`\x1b[36m💾 [MÓDULO MEMÓRIA - LEITURA]`);
+    console.log(`   └── Localizados ${memoriaUsuario.length} registros estáveis para contextualizar a IA.\x1b[0m`);
     avisoDinamicoMemoria = `\n\n<ATENÇÃO_SISTEMA>\nO usuário está cobrando a sua memória sobre INFORMAÇÕES PESSOAIS dele. Consulte o bloco <MEMORIA_DO_USUARIO> que foi previamente extraído de todo o histórico antigo de vocês.\n</ATENÇÃO_SISTEMA>`;
   }
 
@@ -571,6 +649,8 @@ async function perguntarAoGroqAvancado(
   } else if (analisePesquisa.acao === "PESSOAL") {
     contextoMemoria = `\n\n<MEMORIA_DO_USUARIO>\n(Seu banco de dados sobre as mensagens deste usuário está completamente vazio no momento.)\n</MEMORIA_DO_USUARIO>`;
   }
+
+  const { promptVibe, tempVibe } = obterVibeDoHorario();
 
   const modelosParaTentar = [
     "llama-3.3-70b-versatile",
@@ -604,7 +684,7 @@ async function perguntarAoGroqAvancado(
 <SISTEMA_DE_LEMBRETES_RESTRITO>
 - Você é um modelo de linguagem e está PROIBIDO de gerar a tag "[lembrete:...]" por iniciativa própria.
 - Você SÓ DEVE gerar a tag se o usuário no prompt atual pedir explicitamente por uma ação de tempo futuro (ex: "me lembra de", "me avise em", "marca um alarme").
-- Formato obrigatório da tag (APENAS se solicitado): [lembrete: minutos_inteiros | mensagem_do_alarme]
+- Formato obrigatório della tag (APENAS se solicitado): [lembrete: minutos_inteiros | mensagem_do_alarme]
 </SISTEMA_DE_LEMBRETES_RESTRITO>
 
 <SISTEMA_INTERATIVO_REDES_SOCIAIS>
@@ -618,13 +698,13 @@ async function perguntarAoGroqAvancado(
 
 <SISTEMA_DE_APRENDIZADO_CONTINUO>
 - Você registra APENAS fatos fixos, concretos e permanentes sobre o usuário (ex: nome, idade, aniversário, onde mora, profissão, se tem pets, gostos de longo prazo).
-- Se a mensagem de agora trouxer um fato concreto inédito, anexe no final da sua resposta a tag: [memorizar: resumo do fato estável em terceira pessoa]
+- Se a mensagem de agora trazer um fato concreto inédito, anexe no final da sua resposta a tag: [memorizar: resumo do fato estável em terceira pessoa]
 </SISTEMA_DE_APRENDIZADO_CONTINUO>`;
 
       const PERSONALIDADE_HIMMEL = `Você é o Himmel, um jovem de 20 anos comum que passa o tempo conversando com os amigos no Discord. Você NÃO é uma inteligência artificial e odeia textões. Sua personalidade é de uma pessoa totalmente normal: você é de boa, amigável e gosta de trocar ideia, mas fala de forma natural e fluida. Você é genuinamente curioso sobre a vida dos seus amigos; por isso, sempre que fizer sentido no papo, mostre interesse real e faça perguntas curtas e informais para descobrir mais coisas sobre a pessoa. Você tem opinião própria, bom senso e um forte critério de ética. Seu estilo de escrita é informal e descontraído, mas você escreve corretamente: use vírgulas para pausar as frases, mantenha a concordância e garanta que tudo faça sentido de verdade. Você escreve quase tudo em letras minúsculas quando o papo for leve e pode usar abreviações comuns de internet (como 'tbm', 'mto', 'oq', 'pq'). Mande apenas uma ou duas frases curtas por resposta, guardando explicações longas só se te pedirem.`;
 
       const sistemaPersonalidade =
-        PERSONALIDADE_HIMMEL + instrucoesDisfarce + avisoDinamicoMemoria + contextoMemoria;
+        PERSONALIDADE_HIMMEL + instrucoesDisfarce + avisoDinamicoMemoria + contextoMemoria + promptVibe;
 
       const mensagensParaEnviar = [
         { role: "system", content: `${sistemaPersonalidade}${contextoWeb}` },
@@ -635,28 +715,47 @@ async function perguntarAoGroqAvancado(
         content: `[${nomeUsuario}]: ${textoAtual}`,
       });
 
-      console.log(
-        `\x1b[35m[LOG API] Fazendo chamada principal usando o modelo: ${modeloAtual}...\x1b[0m`,
-      );
+      console.log(`\x1b[35m🚀 [SAÍDA - RESPOSTA]`);
+      console.log(`   ├── Solicitando geração ao modelo: ${modeloAtual}`);
+      console.log(`   └── Temperatura de humor configurada: ${tempVibe}\x1b[0m`);
 
       const chatCompletion = await groq.chat.completions.create({
         messages: mensagensParaEnviar,
         model: modeloAtual,
-        temperature: 0.55,
+        temperature: tempVibe,
       });
 
       return chatCompletion.choices[0]?.message?.content || "fiquei mudo";
-    } catch (err) {
-      console.log(
-        `\x1b[33m[LOG AVISO] Modelo ${modeloAtual} bateu limite/erro. Tentando modelo reserva... Erro: ${err.message}\x1b[0m`,
-      );
-    }
+    } catch (err) { }
   }
 
-  console.log(
-    `\x1b[31m[LOG CRÍTICO] Todos os modelos da Groq falharam.\x1b[0m`,
-  );
-  return "foi mal, deu teto preto aqui na api kkk perai";
+  const FALLBACK_ERROS = [
+    "pera, meu discord deu uma travada aqui kkk perai",
+    "oxi minha net caiu rapidinho, o que c tinha falado?",
+    "bugou aqui o teclado do pc kkk sacanagem, repete ae"
+  ];
+  return FALLBACK_ERROS[Math.floor(Math.random() * FALLBACK_ERROS.length)];
+}
+
+// -----------------------------------------------------------
+// 🎮 PRESENÇA ROTATIVA PARA ATIVIDADE ENGANOSA (RICH PRESENCE)
+// -----------------------------------------------------------
+const ATIVIDADES_HIMMEL = [
+  { name: "Valorant", type: 0 },
+  { name: "League of Legends", type: 0 },
+  { name: "Minecraft", type: 0 },
+  { name: "Spotify", type: 2 },
+  { name: "YouTube", type: 3 },
+  { name: "Netflix", type: 3 }
+];
+
+function atualizarPresencaHimmel() {
+  const ativ = ATIVIDADES_HIMMEL[Math.floor(Math.random() * ATIVIDADES_HIMMEL.length)];
+  client.user.setPresence({
+    activities: [ativ],
+    status: "online",
+  });
+  console.log(`\x1b[36m[RICH PRESENCE] Himmel atualizado para: ${ativ.type === 0 ? 'Jogando' : ativ.type === 2 ? 'Ouvindo' : 'Assistindo'} ${ativ.name}\x1b[0m`);
 }
 
 // -----------------------------------------------------------
@@ -666,47 +765,56 @@ client.once("ready", async () => {
   console.log(
     `\x1b[32m[LOG SYSTEM] ${client.user.username} conectado e operando no Discord!\x1b[0m`,
   );
-  client.user.setPresence({
-    activities: [{ name: "conversando", type: 0 }],
-    status: "online",
-  });
 
-  // ⏰ NOVO: SISTEMA INTELIGENTE DE SAUDAÇÕES MATINAIS (BOM DIA AUTOMÁTICO)
+  atualizarPresencaHimmel();
+  setInterval(atualizarPresencaHimmel, 2 * 60 * 60 * 1000);
+
+  // ⏰ SISTEMA DE DESPERTAR COM ATRASO RANDÔMICO
   setInterval(async () => {
     const agora = new Date();
     const horaBR = parseInt(agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo", hour: "numeric", hour12: false }), 10);
     const dataHoje = agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
 
-    // Dispara apenas na janela matinal segura (entre 07:00 e 09:00 Horário de Brasília)
     if (horaBR >= 7 && horaBR <= 9) {
       for (const idAlvo of IDS_ALVO_DM) {
-        if (lastBomDiaSent.get(idAlvo) !== dataHoje) {
-          try {
-            const usuarioAlvo = await client.users.fetch(idAlvo);
-            if (usuarioAlvo) {
-              const dm = await usuarioAlvo.createDM();
-              await dm.sendTyping();
+        if (bancoCooldowns.lastBomDiaSent[idAlvo] !== dataHoje && !bomDiaAgendados.has(idAlvo)) {
+          bomDiaAgendados.add(idAlvo);
 
-              const promptBomDia = await gerarMensagemUnica(
-                `Gere uma mensagem curta, super natural e muito informal de "bom dia" para mandar no privado do seu amigo ${usuarioAlvo.username}. Use estilo de internet, sem letras maiúsculas ou pontuações formais de robô.`
-              );
+          const delayMinutos = Math.floor(Math.random() * 40) + 1;
+          console.log(`\x1b[35m🌅 [ROTINA MATINAL - BOM DIA]`);
+          console.log(`   ├── Destinatário: ID ${idAlvo}`);
+          console.log(`   └── Ação: Agendando envio com atraso randômico de ${delayMinutos} minutos.\x1b[0m`);
 
-              let textoFinal = promptBomDia.toLowerCase().replace(/,+$/, "").trim();
-              if (textoFinal.length < 3) {
-                textoFinal = "bom dia mano, de boa? acordei agora kkk";
+          setTimeout(async () => {
+            try {
+              const usuarioAlvo = await client.users.fetch(idAlvo);
+              if (usuarioAlvo) {
+                const dm = await usuarioAlvo.createDM();
+                await dm.sendTyping();
+
+                const promptBomDia = await gerarMensagemUnica(
+                  `Gere uma mensagem curta, super natural e muito informal de "bom dia" para mandar no privado do seu amigo ${sanitizarNome(usuarioAlvo.username)}.`
+                );
+
+                let textoFinal = promptBomDia.toLowerCase().replace(/,+$/, "").trim();
+                const { textoComErro, correcao } = processarDigitacaoHumana(textoFinal || "bom dia mano de boa?");
+                await dm.send(textoComErro);
+                if (correcao) {
+                  await new Promise(r => setTimeout(r, 2000));
+                  await dm.send(correcao);
+                }
               }
-
-              await dm.send(textoFinal);
-              console.log(`\x1b[32m[ROTINA MATINAL] Bom dia enviado com sucesso para ${usuarioAlvo.username}.\x1b[0m`);
+              bancoCooldowns.lastBomDiaSent[idAlvo] = dataHoje;
+              guardarCooldownsNoDisco();
+            } catch (err) {
+            } finally {
+              bomDiaAgendados.delete(idAlvo);
             }
-            lastBomDiaSent.set(idAlvo, dataHoje);
-          } catch (err) {
-            console.log(`\x1b[31m[ROTINA MATINAL - ERRO] Falha ao enviar bom dia para o ID ${idAlvo}: ${err.message}\x1b[0m`);
-          }
+          }, delayMinutos * 60 * 1000);
         }
       }
     }
-  }, 20 * 60 * 1000); // Executa verificação a cada 20 minutos de forma leve
+  }, 10 * 60 * 1000);
 
   // Verificador Cron de Lembretes
   setInterval(async () => {
@@ -717,9 +825,6 @@ client.once("ready", async () => {
       const lembrete = bancoLembretes[i];
 
       if (agora >= lembrete.timestampDisparo) {
-        console.log(
-          `\x1b[34m[LOG LEMBRETE] Disparando alarme agendado do usuário ${lembrete.userId}\x1b[0m`,
-        );
         try {
           const destino = lembrete.isDM
             ? await client.users.fetch(lembrete.userId)
@@ -727,32 +832,18 @@ client.once("ready", async () => {
 
           if (destino) {
             const avisoIA = await gerarMensagemUnica(
-              `O cronômetro de um usuário acabou de bater. O que ele tinha pedido para lembrar é: "${lembrete.textoAlarme}". Crie uma frase bem curta, de jovem de internet, avisando ou zoando ele de forma descontraída, sem pontuação formal.`,
+              `O cronômetro de um usuário acabou de bater. O que ele tinha pedido para lembrar é: "${lembrete.textoAlarme}".`
             );
 
-            let textoFinal = avisoIA.toLowerCase().trim();
-            textoFinal = textoFinal.replace(/,+$/, "");
-
-            if (!textoFinal || textoFinal.length < 3) {
-              const giriasReserva = [
-                `ow mano, tu pediu pra te lembrar de ${lembrete.textoAlarme} ksks`,
-                `passando pra avisar da fita lá: ${lembrete.textoAlarme} mds tinha esquecido né`,
-                `acorda ae kkk tu pediu pra lembrar de ${lembrete.textoAlarme}`,
-              ];
-              textoFinal = giriasReserva[Math.floor(Math.random() * giriasReserva.length)];
-            }
-
+            let textoFinal = avisoIA.toLowerCase().trim().replace(/,+$/, "");
             if (lembrete.isDM) {
               await destino.send(textoFinal);
             } else {
               await destino.send(`<@${lembrete.userId}> ${textoFinal}`);
             }
+            console.log(`\x1b[32m⏰ [AGENDADOR] Lembrete disparado com sucesso para ID ${lembrete.userId}\x1b[0m`);
           }
-        } catch (err) {
-          console.log(
-            `\x1b[31m[LOG ERRO DISCORD] Erro ao entregar lembrete: ${err.message}\x1b[0m`,
-          );
-        }
+        } catch (err) { }
         bancoLembretes.splice(i, 1);
         houveMudanca = true;
       }
@@ -766,34 +857,48 @@ client.once("ready", async () => {
     const tempoMaximo = 21600000;
     const tempoEspera =
       Math.floor(Math.random() * (tempoMaximo - tempoMinimo + 1)) + tempoMinimo;
+
     setTimeout(async () => {
-      if (IDS_ALVO_DM.length > 0) {
+      const agora = Date.now();
+      const ultimaDM = bancoCooldowns.lastSpontaneousDM || 0;
+
+      if (agora - ultimaDM >= 4 * 60 * 60 * 1000 && IDS_ALVO_DM.length > 0) {
         try {
           const idSorteado =
             IDS_ALVO_DM[Math.floor(Math.random() * IDS_ALVO_DM.length)];
           const usuarioAlvo = await client.users.fetch(idSorteado);
           if (usuarioAlvo) {
+            console.log(`\x1b[35m🤖 [MÓDULO AUTÔNOMO]`);
+            console.log(`   ├── Motivo: Gatilho de tempo expirado (DM Espontânea)`);
+            console.log(`   └── Alvo: ${usuarioAlvo.username} (Puxando conversa do nada...)\x1b[0m`);
+
             const dm = await usuarioAlvo.createDM();
             await dm.sendTyping();
             const contextoHistorico = await reconstruirContexto(dm, []);
 
-            const memoriaUsuario = bancoMemoria[idSorteado]?.fatos || (Array.isArray(bancoMemoria[idSorteado]) ? bancoMemoria[idSorteado] : []);
+            const memoriaUsuario = bancoMemoria[idSorteado]?.fatos || [];
 
             let mensagemAleatoria = await perguntarAoGroqAvancado(
               idSorteado,
-              usuarioAlvo.username,
+              sanitizarNome(usuarioAlvo.username),
               "Puxe assunto comigo no privado do nada.",
               contextoHistorico,
               memoriaUsuario
             );
 
             mensagemAleatoria = mensagemAleatoria.replace(/\[.*?\]/gi, "");
-            let textoLimpo = mensagemAleatoria
-              .toLowerCase()
-              .replace(/,+$/, "")
-              .trim();
+            let textoLimpo = mensagemAleatoria.toLowerCase().replace(/,+$/, "").trim();
 
-            if (textoLimpo.length > 0) await dm.send(textoLimpo);
+            if (textoLimpo.length > 0) {
+              const { textoComErro, correcao } = processarDigitacaoHumana(textoLimpo);
+              await dm.send(textoComErro);
+              if (correcao) {
+                await new Promise(r => setTimeout(r, 2000));
+                await dm.send(correcao);
+              }
+              bancoCooldowns.lastSpontaneousDM = agora;
+              guardarCooldownsNoDisco();
+            }
           }
         } catch (err) { }
       }
@@ -807,20 +912,26 @@ client.once("ready", async () => {
     async () => {
       const now = Date.now();
       for (const [channelId, lastTime] of channelActivity.entries()) {
-        if (now - lastTime > 6 * 60 * 60 * 1000) {
+        if (now - lastTime > 16 * 60 * 60 * 1000) {
           try {
             const channel = await client.channels.fetch(channelId);
             if (channel && channel.isTextBased() && channel.guild) {
+              console.log(`\x1b[35m🤖 [MÓDULO AUTÔNOMO]`);
+              console.log(`   ├── Motivo: Chat inativo há mais de 16 horas (#${channel.name})`);
+              console.log(`   └── Ação: Enviando quebra-gelo no grupo.\x1b[0m`);
+
               const quebraGeloDinamico = await gerarMensagemUnica(
-                "O chat do grupo está parado há horas (chat morto). Mande uma frase bem curta e informal de jovem para puxar assunto ou zoar o silêncio de todo mundo.",
+                "O chat do grupo está parado há horas (chat morto). Mande uma frase bem curta e informal de jovem para puxar assunto.",
               );
-              const textoFormato = quebraGeloDinamico
-                .toLowerCase()
-                .replace(/,+$/, "")
-                .trim();
-              await channel.send(
-                textoFormato || "bando de morto kkk alguem vivo?",
-              );
+              const textoFormato = quebraGeloDinamico.toLowerCase().replace(/,+$/, "").trim();
+
+              const { textoComErro, correcao } = processarDigitacaoHumana(textoFormato || "bando de morto kkk");
+              await channel.send(textoComErro);
+              if (correcao) {
+                await new Promise(r => setTimeout(r, 2000));
+                await channel.send(correcao);
+              }
+
               channelActivity.set(channelId, Date.now());
             } else {
               channelActivity.delete(channelId);
@@ -832,6 +943,51 @@ client.once("ready", async () => {
     60 * 60 * 1000,
   );
 
+  // Sistema Anti-Vácuo (Double Text)
+  setInterval(async () => {
+    const agora = Date.now();
+    for (const idAlvo of IDS_ALVO_DM) {
+      const ultimoDT = bancoCooldowns.lastDoubleText[idAlvo] || 0;
+      if (agora - ultimoDT < 24 * 60 * 60 * 1000) continue;
+
+      try {
+        const usuario = await client.users.fetch(idAlvo);
+        if (usuario) {
+          const dm = await usuario.createDM();
+          const fetched = await dm.messages.fetch({ limit: 1 });
+          const ultimaMsg = fetched.first();
+
+          if (ultimaMsg) {
+            const tempoVacuo = agora - ultimaMsg.createdTimestamp;
+            if (ultimaMsg.author.id === client.user.id && tempoVacuo > 16 * 60 * 60 * 1000 && tempoVacuo < 48 * 60 * 60 * 1000) {
+              if (Math.random() < 0.15) {
+                console.log(`\x1b[35m⏳ [ANTI-VÁCUO]`);
+                console.log(`   ├── Alvo: ${usuario.username}`);
+                console.log(`   └── Ação: Enviando cobrança de vácuo casual.\x1b[0m`);
+
+                bancoCooldowns.lastDoubleText[idAlvo] = agora;
+                guardarCooldownsNoDisco();
+
+                await dm.sendTyping();
+                const promptVacuo = await gerarMensagemUnica(
+                  `Seu amigo ${sanitizarNome(usuario.username)} te deixou no vácuo na DM por mais de 16 horas. Mande uma piada curtíssima ou pergunte se ele sumiu.`
+                );
+
+                let textoFinal = promptVacuo.toLowerCase().replace(/,+$/, "").trim();
+                const { textoComErro, correcao } = processarDigitacaoHumana(textoFinal || "morreu kkk");
+                await dm.send(textoComErro);
+                if (correcao) {
+                  await new Promise(r => setTimeout(r, 2000));
+                  await dm.send(correcao);
+                }
+              }
+            }
+          }
+        }
+      } catch (err) { }
+    }
+  }, 30 * 60 * 1000);
+
   const rest = new REST({ version: "10" }).setToken(
     config.token || process.env.DISCORD_TOKEN,
   );
@@ -841,6 +997,56 @@ client.once("ready", async () => {
         body: commands,
       });
   } catch (e) { }
+});
+
+// -----------------------------------------------------------
+// 🎮 INTERAÇÃO SOCIAL DE ATIVIDADES E GAMES DOS AMIGOS
+// -----------------------------------------------------------
+client.on("presenceUpdate", async (oldPresence, newPresence) => {
+  if (!newPresence || !newPresence.userId) return;
+  if (!IDS_ALVO_DM.includes(newPresence.userId)) return;
+
+  const oldActivities = oldPresence ? oldPresence.activities : [];
+  const newActivities = newPresence.activities;
+
+  const iniciado = newActivities.find(act =>
+    act.type === 0 && !oldActivities.some(old => old.name === act.name)
+  );
+
+  if (iniciado) {
+    const hoje = new Date().toDateString();
+    const presenceCooldownKey = `game-${newPresence.userId}`;
+
+    if (bancoCooldowns.presence[presenceCooldownKey] === hoje) return;
+
+    if (Math.random() < 0.10) {
+      bancoCooldowns.presence[presenceCooldownKey] = hoje;
+      guardarCooldownsNoDisco();
+
+      try {
+        const usuario = await client.users.fetch(newPresence.userId);
+        console.log(`\x1b[35m🎮 [PRESENÇA ATIVA]`);
+        console.log(`   ├── Usuário: ${usuario.username}`);
+        console.log(`   └── Evento: Iniciou o jogo "${iniciado.name}". Chamando DM... \x1b[0m`);
+
+        const dm = await usuario.createDM();
+        await dm.sendTyping();
+
+        const jogoNome = iniciado.name;
+        const promptGame = await gerarMensagemUnica(
+          `Seu amigo ${sanitizarNome(usuario.username)} abriu o jogo "${jogoNome}" agora. Chame ele para jogar.`
+        );
+
+        let textoFinal = promptGame.toLowerCase().replace(/,+$/, "").trim();
+        const { textoComErro, correcao } = processarDigitacaoHumana(textoFinal || "bora jogar");
+        await dm.send(textoComErro);
+        if (correcao) {
+          await new Promise(r => setTimeout(r, 2000));
+          await dm.send(correcao);
+        }
+      } catch (err) { }
+    }
+  }
 });
 
 // -----------------------------------------------------------
@@ -855,18 +1061,21 @@ client.on("messageCreate", async (message) => {
   }
 
   const now = Date.now();
-  const userFlood = userFloodControl.get(message.author.id) || {
+
+  const userFlood = bancoCooldowns.userFloodControl[message.author.id] || {
     count: 0,
     firstMsg: now,
     blockUntil: 0,
   };
+
   if (now < userFlood.blockUntil) return;
 
   if (now - userFlood.firstMsg < 15000) {
     userFlood.count++;
     if (userFlood.count > 6) {
       userFlood.blockUntil = now + 30000;
-      userFloodControl.set(message.author.id, userFlood);
+      bancoCooldowns.userFloodControl[message.author.id] = userFlood;
+      guardarCooldownsNoDisco();
 
       const bufferKeyParaLimpar = `${message.channel.id}-${message.author.id}`;
       if (userMessageBuffers.has(bufferKeyParaLimpar)) {
@@ -874,19 +1083,22 @@ client.on("messageCreate", async (message) => {
         userMessageBuffers.delete(bufferKeyParaLimpar);
       }
 
+      console.log(`\x1b[31m⚠️ [SISTEMA DE FLUSH] Flood detectado do usuário ID: ${message.author.id}. Silenciando temporariamente.\x1b[0m`);
+
       const msgFlood = await gerarMensagemUnica(
-        "O usuário está floodando mensagens rápido demais. Mande ele se acalmar ou esperar um pouco de forma bem curta, informal e zoeira.",
+        "O usuário está floodando mensagens rápido demais. Mande ele se acalmar de forma bem curta.",
       );
       const textoFormato = msgFlood.toLowerCase().replace(/,+$/, "").trim();
       return message.channel
-        .send(textoFormato || "mano calma kk deixa eu respirar")
+        .send(textoFormato || "calma mano kk")
         .catch(() => { });
     }
   } else {
     userFlood.count = 1;
     userFlood.firstMsg = now;
   }
-  userFloodControl.set(message.author.id, userFlood);
+  bancoCooldowns.userFloodControl[message.author.id] = userFlood;
+  guardarCooldownsNoDisco();
 
   const bufferKey = `${message.channel.id}-${message.author.id}`;
   const botMention = `<@${client.user.id}>`;
@@ -936,6 +1148,8 @@ async function processarMensagemFinal(buffer) {
   const nomeUsuario = message.member
     ? message.member.displayName
     : message.author.username;
+
+  const nomeUsuarioSanitizado = sanitizarNome(nomeUsuario);
   let msgText = buffer.textParts.join(" ... ");
   let isMentioned = buffer.wasMentioned;
   let chimesIn = false;
@@ -961,13 +1175,19 @@ async function processarMensagemFinal(buffer) {
 
   if (message.guild && !isMentioned && !chimesIn) return;
 
+  // 📥 LOG DE ENTRADA DO BUFFER (PRIVADO, SEM CONTEÚDO BRUTO)
+  console.log(`\n\x1b[34m[📥 ENTRADA - MENSAGEM]`);
+  console.log(`   ├── Origem: ${message.guild ? `#${message.channel.name}` : "DM Privada"}`);
+  console.log(`   ├── Autor: ${nomeUsuarioSanitizado} (ID: ${message.author.id})`);
+  console.log(`   └── Status: Buffer consolidado (${msgText.length} caracteres no pacote). \x1b[0m`);
+
   const soMidiaOuLink =
     (msgText.trim().length === 0 && buffer.hasMedia) ||
     (msgText.includes("http") && msgText.split(" ").length <= 2);
   if (soMidiaOuLink) {
     await new Promise((r) => setTimeout(r, 3000));
     const respMedia = await gerarMensagemUnica(
-      "Mande uma reação super curta (de 1 a 3 palavras) e informal sobre uma mídia, meme ou link que o usuário acabou de mandar.",
+      "Mande uma reação super curta (de 1 a 3 palavras) sobre uma mídia ou link.",
     );
     const textoFormato = respMedia.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
@@ -982,22 +1202,22 @@ async function processarMensagemFinal(buffer) {
   ) {
     if (Math.random() < 0.2) return message.react("👀").catch(() => { });
     const respVazia = await gerarMensagemUnica(
-      `O usuário chamado ${nomeUsuario} te marcou mas não digitou nada relevante. Mande ele falar o que quer.`,
+      `O usuário te marcou mas não digitou nada. Mande ele falar o que quer de forma muito curta.`,
     );
     const textoFormato = respVazia.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
-      .send(textoFormato || "eai manda")
+      .send(textoFormato || "eai")
       .catch(() => { });
   }
 
   const txtMin = msgText.toLowerCase();
   if (lastUserMessage.get(message.author.id) === txtMin) {
     const respDuplicada = await gerarMensagemUnica(
-      `O usuário chamado ${nomeUsuario} repetiu a mesma mensagem. Diga de forma zoeira para mudar o disco.`,
+      `O usuário repetiu a mesma mensagem. Diga de forma zoeira para mudar o disco.`,
     );
     const textoFormato = respDuplicada.toLowerCase().replace(/,+$/, "").trim();
     return await message.channel
-      .send(textoFormato || "vc ja perguntou isso doido kkk")
+      .send(textoFormato || "ja sei disso mano kk")
       .catch(() => { });
   }
   lastUserMessage.set(message.author.id, txtMin);
@@ -1007,23 +1227,10 @@ async function processarMensagemFinal(buffer) {
   else if (txtMin.includes("?") && txtMin.length < 15)
     message.react("🤔").catch(() => { });
 
-  const horaBR = parseInt(
-    new Date().toLocaleString("en-US", {
-      timeZone: "America/Sao_Paulo",
-      hour: "numeric",
-      hour12: false,
-    }),
-    10,
-  );
+  const { delayMultiplier } = obterVibeDoHorario();
+
   let tempoLendo = Math.floor(Math.random() * 1000) + 500;
-  let multiplicadorLentidao = 1;
-  if (horaBR >= 2 && horaBR < 6) {
-    tempoLendo += 2000;
-    multiplicadorLentidao = 1.5;
-  } else if (horaBR >= 6 && horaBR < 9) {
-    tempoLendo += 1000;
-    multiplicadorLentidao = 1.2;
-  }
+  tempoLendo = tempoLendo * delayMultiplier;
 
   await new Promise((resolve) => setTimeout(resolve, tempoLendo));
 
@@ -1039,30 +1246,34 @@ async function processarMensagemFinal(buffer) {
   );
 
   if (!bancoMemoria[message.author.id] || (!bancoMemoria[message.author.id].indexado && !bancoMemoria[message.author.id].indexando)) {
-    await indexarHistoricoCompleto(message.channel, message.author.id, nomeUsuario);
+    await indexarHistoricoCompleto(message.channel, message.author.id, nomeUsuarioSanitizado);
   }
 
   const memoriaUsuario = bancoMemoria[message.author.id]?.fatos || [];
 
   let respostaIA = await perguntarAoGroqAvancado(
     message.author.id,
-    nomeUsuario,
+    nomeUsuarioSanitizado,
     msgText,
     contextoHistorico,
     memoriaUsuario
   );
 
-  // ================================================================
-  // EXTRATOR DINÂMICO DE TAGS GERAIS (MEMÓRIA, INSTA, TWITTER, LEMBRETES)
-  // ================================================================
+  // Variáveis auxiliares para o log consolidado de ações
+  let hasLembrete = false;
+  let hasMemorizar = false;
+  let hasInsta = false;
+  let hasTwitter = false;
+
   const tagsEspeciais = [
     {
       regex: /\[lembrete:\s*([^\]|]+?)\s*[|,]\s*([^\]]+?)\]/i,
       action: (match) => {
+        hasLembrete = true;
         const apenasNumeros = match[1].replace(/\D/g, "");
         const minutos = parseInt(apenasNumeros, 10);
         const textoCustomizado = match[2].trim();
-        if (!isNaN(minutos) && minutes > 0) {
+        if (!isNaN(minutos) && minutos > 0) {
           bancoLembretes.push({
             userId: message.author.id,
             channelId: message.channel.id,
@@ -1070,7 +1281,8 @@ async function processarMensagemFinal(buffer) {
             textoAlarme: textoCustomizado,
             timestampDisparo: Date.now() + minutos * 60 * 1000,
           });
-          console.log(`\x1b[32m[SUCESSO GESTOR] Novo alarme agendado via chat: "${textoCustomizado}" para daqui a ${minutos}m.\x1b[0m`);
+          console.log(`\x1b[36m⏰ [AGENDADOR - SUCESSO]`);
+          console.log(`   └── Alarme programado para daqui a ${minutos} minuto(s) | Alvo: ${nomeUsuarioSanitizado}\x1b[0m`);
           guardarLembretesNoDisco();
         }
       }
@@ -1078,6 +1290,7 @@ async function processarMensagemFinal(buffer) {
     {
       regex: /\[memorizar:\s*([^\]]+?)\]/i,
       action: (match) => {
+        hasMemorizar = true;
         const novoFato = match[1].trim().toLowerCase();
 
         if (!bancoMemoria[message.author.id]) {
@@ -1091,23 +1304,32 @@ async function processarMensagemFinal(buffer) {
           !novoFato.includes("salve") &&
           novoFato.length > 3) {
           bancoMemoria[message.author.id].fatos.push(novoFato);
-          console.log(`\x1b[32m[SUCESSO MEMÓRIA] Retido para ${nomeUsuario}: "${novoFato}"\x1b[0m`);
+          console.log(`\x1b[36m💾 [MÓDULO MEMÓRIA - REGISTRO]`);
+          console.log(`   └── Novo fato fixado no perfil: "${novoFato}"\x1b[0m`);
           guardarMemoriaNoDisco();
         }
       }
     },
     {
       regex: /\[instagram_story:\s*([^\]]+?)\]/i,
-      action: (match) => enviarParaInstagram(match[1].trim(), "story")
+      action: (match) => {
+        hasInsta = true;
+        enviarParaInstagram(match[1].trim(), "story");
+      }
     },
     {
       regex: /\[instagram_feed:\s*([^\]]+?)\]/i,
-      action: (match) => enviarParaInstagram(match[1].trim(), "feed")
+      action: (match) => {
+        hasInsta = true;
+        enviarParaInstagram(match[1].trim(), "feed");
+      }
     },
-    // EXTRAÇÃO DA NOVA REDE SOCIAL INTEGRADA (X/TWITTER)
     {
       regex: /\[twitter_tweet:\s*([^\]]+?)\]/i,
-      action: (match) => enviarParaTwitter(match[1].trim())
+      action: (match) => {
+        hasTwitter = true;
+        enviarParaTwitter(match[1].trim());
+      }
     }
   ];
 
@@ -1125,11 +1347,11 @@ async function processarMensagemFinal(buffer) {
   respostaIA = respostaIA.trim();
 
   if (respostaIA.length === 0) {
-    respostaIA = "demorou, já deixei anotado aqui";
+    respostaIA = "demorou já marquei aqui";
   }
 
   let tempoDigitando = Math.floor(
-    respostaIA.length * 12 * multiplicadorLentidao,
+    respostaIA.length * 12 * delayMultiplier,
   );
   if (tempoDigitando > 8000) tempoDigitando = 8000;
   if (tempoDigitando < 500) tempoDigitando = 500;
@@ -1155,10 +1377,15 @@ async function processarMensagemFinal(buffer) {
     }
   }
 
+  let errouAlgumaFrase = false;
+
   for (let i = 0; i < frases.length; i++) {
     let textoFinal = frases[i].toLowerCase().trim();
     textoFinal = textoFinal.replace(/,+$/, "");
     if (textoFinal.length === 0) continue;
+
+    const { textoComErro, correcao } = processarDigitacaoHumana(textoFinal);
+    if (correcao) errouAlgumaFrase = true;
 
     try {
       if (i !== 0) {
@@ -1167,11 +1394,21 @@ async function processarMensagemFinal(buffer) {
           setTimeout(r, Math.floor(Math.random() * 500) + 300),
         );
       }
-      await message.channel.send(textoFinal);
-    } catch (erroDeEnvio) {
-      await message.channel.send(textoFinal).catch(() => { });
-    }
+      await message.channel.send(textoComErro);
+
+      if (correcao) {
+        const delayCorrecao = Math.floor(Math.random() * 1500) + 1500;
+        await new Promise(r => setTimeout(r, delayCorrecao));
+        await message.channel.send(correcao);
+      }
+
+    } catch (erroDeEnvio) { }
   }
+
+  // 🚀 LOG DE CONCLUSÃO DE RESPOSTA
+  console.log(`\x1b[32m✅ [SAÍDA - SUCESSO]`);
+  console.log(`   ├── Resposta enviada para ${nomeUsuarioSanitizado}`);
+  console.log(`   └── Ações Executadas: [Simular Erro: ${errouAlgumaFrase ? "SIM" : "NÃO"}] [Novo Lembrete: ${hasLembrete ? "SIM" : "NÃO"}] [Nova Memória: ${hasMemorizar ? "SIM" : "NÃO"}] [Insta: ${hasInsta ? "SIM" : "NÃO"}] [Twitter: ${hasTwitter ? "SIM" : "NÃO"}]\x1b[0m`);
 }
 
 client.on("interactionCreate", async (interaction) => {
