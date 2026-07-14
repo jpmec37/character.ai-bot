@@ -832,7 +832,7 @@ client.once("ready", async () => {
 
           if (destino) {
             const avisoIA = await gerarMensagemUnica(
-              `O cronômetro de um usuário acabou de bater. O que ele tinha pedido para lembrar é: "${lembrete.textoAlarme}".`
+              `O alarme do usuário acabou de tocar. Avise ele DIRETAMENTE agora sobre isso. O motivo do lembrete é: "${lembrete.textoAlarme}".`
             );
 
             let textoFinal = avisoIA.toLowerCase().trim().replace(/,+$/, "");
