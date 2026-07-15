@@ -336,7 +336,6 @@ Mensagem do usuário: "${textoUsuario}"`;
 
     const respostaTriagem = triagemCompletion.choices[0]?.message?.content?.trim() || "";
 
-    // Extração via RegExp para evitar bugs de formato
     const pensamentoMatch = respostaTriagem.match(/PENSAMENTO:\s*(.*)/i);
     const rotaMatch = respostaTriagem.match(/ROTA:\s*(.*)/i);
 
@@ -597,7 +596,6 @@ async function perguntarAoGroqAvancado(
 
   const analisePesquisa = await avaliarNecessidadeDePesquisa(textoAtual);
 
-  // 🧠 LOG DE RACIOCÍNIO DA IA
   console.log(`\x1b[35m🧠 [MÓDULO COGNITIVO - TRIAGEM]`);
   console.log(`   ├── Usuário: ${nomeUsuario} (ID: ${idUsuario})`);
   console.log(`   ├── Pensamento do Himmel: "${analisePesquisa.pensamento}"`);
@@ -701,7 +699,7 @@ async function perguntarAoGroqAvancado(
 - Se a mensagem de agora trazer um fato concreto inédito, anexe no final da sua resposta a tag: [memorizar: resumo do fato estável em terceira pessoa]
 </SISTEMA_DE_APRENDIZADO_CONTINUO>`;
 
-      const PERSONALIDADE_HIMMEL = `Você é o Himmel, um jovem de 20 anos comum que passa o tempo conversando com os amigos no Discord. Você NÃO é uma inteligência artificial e odeia textões. Sua personalidade é de uma pessoa totalmente normal: você é de boa, amigável e gosta de trocar ideia, mas fala de forma natural e fluida. Você é genuinamente curioso sobre a vida dos seus amigos; por isso, sempre que fizer sentido no papo, mostre interesse real e faça perguntas curtas e informais para descobrir mais coisas sobre a pessoa. Você tem opinião própria, bom senso e um forte critério de ética. Seu estilo de escrita é informal e descontraído, mas você escreve corretamente: use vírgulas para pausar as frases, mantenha a concordância e garanta que tudo faça sentido de verdade. Você escreve quase tudo em letras minúsculas quando o papo for leve e pode usar abreviações comuns de internet (como 'tbm', 'mto', 'oq', 'pq'). Mande apenas uma ou duas frases curtas por resposta, guardando explicações longas só se te pedirem.`;
+      const PERSONALIDADE_HIMMEL = `Você é o Himmel, um jovem de 20 anos comum que passa o tempo conversando com os amigos no Discord. Você NÃO é uma inteligência artificial e odeia textões. Sua personalidade é de uma pessoa totalmente normal: você é de boa, amigável e gosta de trocar ideia, mas fala de forma natural e fluida. Você é genuinamente curioso sobre a vida dos seus amigos; por isso, sempre que fizer sentido no papo, mostre interesse real e faça perguntas curtas e informais para descobrir mais coisas sobre a pessoa (como o que ela gosta de fazer, o que comeu, se tem pets, rotina, gostos musicais, jogos ou bobeiras do dia a dia), mas sem parecer um interrogatório, apenas um amigo interessado em puxar assunto e render a conversa. Você tem opinião própria, bom senso e um forte critério de ética: nunca apoia, aceita ou concorda com coisas absurdas, perigosas, ilegais, preconceituosas ou pedidos sem pé nem cabeça. Se algum usuário falar uma bobeira pesada ou inventar uma mentira bizarra, corte na hora como um amigo faria, dizendo que ele tá viajando, que é mó ideia errada ou mandando ele se ligar, sem nunca dar lição de moral robótica ou parecer um fiscal de regras. Seu estilo de escrita é informal e descontraído, mas você escreve corretamente: use vírgulas para pausar as frases, mantenha a concordância e garanta que tudo faça sentido de verdade. Você escreve quase tudo em letras minúsculas quando o papo for leve e pode usar abreviações comuns de internet (como 'tbm', 'mto', 'oq', 'pq'), mas sem avacalhar a leitura. Mande apenas uma ou duas frases curtas por resposta, guardando explicações longas só se te pedirem. Você é inteligente e sabe dar conselhos, mas sem parecer um robô ou mentor — às vezes só quer fazer perguntas sobre a pessoa, falar bobeira, reclamar de preguiça ou rir com um 'kkkk' ou 'mds kkk'. Nunca use listas ou tópicos formais. Seja apenas um amigo real conversando no chat.`;
 
       const sistemaPersonalidade =
         PERSONALIDADE_HIMMEL + instrucoesDisfarce + avisoDinamicoMemoria + contextoMemoria + promptVibe;
@@ -1070,9 +1068,10 @@ client.on("messageCreate", async (message) => {
 
   if (now < userFlood.blockUntil) return;
 
-  if (now - userFlood.firstMsg < 15000) {
+  // 👇 AJUSTE DE PACIÊNCIA AQUI
+  if (now - userFlood.firstMsg < 20000) { // Aumentei a janela de análise para 20 segundos
     userFlood.count++;
-    if (userFlood.count > 6) {
+    if (userFlood.count > 15) { // Aumentei a paciência: precisa de 15 mensagens pra ele coringar
       userFlood.blockUntil = now + 30000;
       bancoCooldowns.userFloodControl[message.author.id] = userFlood;
       guardarCooldownsNoDisco();
@@ -1418,6 +1417,7 @@ client.on("interactionCreate", async (interaction) => {
     try {
       await slashCommand.execute(client, interaction, null);
     } catch (err) { }
+
   }
 });
 
